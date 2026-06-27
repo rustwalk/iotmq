@@ -1,3 +1,4 @@
+use iotmq::Server;
 fn main() {
-    println!("Hello, world!");
+    Server::run();
 }
