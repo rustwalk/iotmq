@@ -1,4 +1,4 @@
 use iotmq::Server;
 fn main() {
-    Server::run();
+    Server::new().run();
 }

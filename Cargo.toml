@@ -9,3 +9,5 @@ axum = "0.8.9"
 thiserror = "2.0.17"
 anyhow = "1.0.100"
 serde = { version = "1.0.228", features = ["derive"] }
+arc-swap = "1.9.2"
+config = "0.15.25"

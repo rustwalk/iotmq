@@ -1,0 +1,60 @@
+##------------------------------------------------
+##   Listeners
+##------------------------------------------------
+[listener.tcp]
+addr = "[::]:1883"
+proxy_protocol = false
+max_connections = 102400
+
+[listener.tls]
+addr = "0.0.0.0:8883"
+cert = "./config/iotmq.crt"
+key = "./config/iotmq.key"
+
+[listener.ws]
+addr = "0.0.0.0:8083"
+
+[listener.wss]
+addr = "0.0.0.0:8084"
+cert = "./config/iotmq.crt"
+key = "./config/iotmq.key"
+
+##------------------------------------------------
+##   MQTT
+##------------------------------------------------
+[mqtt]
+max_clientid_len = 0
+max_packet_size = 1
+max_topic_alias = 65535
+max_receive = 2048
+max_qos = 2
+max_inflight = 16
+max_mqueue_len = 1000
+session_expiry_interval = 300
+retain_available = true
+
+##------------------------------------------------
+##   DashBoard
+##------------------------------------------------
+[http]
+addr = "[::]:8888"
+
+##------------------------------------------------
+##   Log
+##------------------------------------------------
+[log]
+level = "debug"     # trace | debug | info | warn | error , default: info
+format = "json"    # json | text , default: json
+dir = "./logs"     # log directory
+file = "iotmq.log" # log filename , default: iotmq.log
+max_age = 7        # log retention days , default: 30
+max_size = 32      # log file size (MB) , default: 128
+max_count = 100    # log file retention nums , default: 100
+
+##------------------------------------------------
+##   Cluster
+##------------------------------------------------
+[cluster]
+node_id = 1
+node_port = 6666
+peer_addrs = ["1@127.0.0.1", "2@127.0.0.1"]
