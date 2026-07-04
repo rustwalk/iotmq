@@ -1,5 +1,9 @@
 /target
 /logs
+/run
+/config/*
+!/config/iotmq.toml
+
 node_modules/
 
 .idea/

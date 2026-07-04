@@ -11,9 +11,11 @@ impl Server {
 
     pub fn run(&mut self) -> Result<()> {
         let config = ConfigManager::init()?;
+        logger::init(&config.read().log)?;
         let ctx = Context::init(config);
-        logger::init(&ctx.config().log)?;
         info!("server run");
         Ok(())
     }
+
+    pub fn stop() {}
 }

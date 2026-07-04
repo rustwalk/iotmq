@@ -43,13 +43,13 @@ addr = "[::]:8888"
 ##   Log
 ##------------------------------------------------
 [log.file]
-level = "info"              # trace | debug | info | warn | error , default: info
-format = "json"             # json | text , default: json
-dir = "./logs"              # log file directory, default: ./logs
-file = "iotmq.log"          # log filename , default: iotmq.log
-error_file = "error.log"    # error log filename, default: error.log
-rotation_size = 100         # rotation log file size (MB) , default: 100
-rotation_days = 30          # log file retention days , default: 30
+level = "info"                  # trace | debug | info | warn | error , default: info
+format = "json"                 # json | text , default: json
+dir = "./logs"                  # log file directory, default: ./logs
+filename = "iotmq.log"          # log filename , default: iotmq.log
+error_filename = "error.log"    # error log filename, default: error.log
+rotation_size = 100             # rotation log file size (MB) , default: 100
+rotation_days = 30              # log file retention days , default: 30
 
 [log.console]
 enable = true      # enable console log , default: false

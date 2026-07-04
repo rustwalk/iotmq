@@ -2,10 +2,13 @@ use anyhow::{Result, anyhow};
 use once_cell::sync::OnceCell;
 use serde::Deserialize;
 use std::{fs, path::PathBuf};
-use tracing_appender::non_blocking::WorkerGuard;
+use tracing::Subscriber;
+use tracing_appender::non_blocking::{NonBlocking, WorkerGuard};
 use tracing_rolling_file::RollingFileAppenderBase;
 use tracing_subscriber::util::SubscriberInitExt;
-use tracing_subscriber::{Layer, filter::LevelFilter, fmt, layer::SubscriberExt};
+use tracing_subscriber::{
+    Layer, Registry, filter::LevelFilter, fmt, layer::SubscriberExt, registry,
+};
 
 static LOG_GUARDS: OnceCell<Vec<WorkerGuard>> = OnceCell::new();
 
@@ -28,8 +31,8 @@ pub struct File {
     pub level: Level,
     pub format: Format,
     pub dir: PathBuf,
-    pub file: String,
-    pub error_file: Option<String>,
+    pub filename: String,
+    pub error_filename: Option<String>,
     pub rotation_size: u64,
     pub rotation_days: usize,
 }
@@ -40,8 +43,8 @@ impl Default for File {
             level: Level::Info,
             format: Format::Json,
             dir: PathBuf::from("./logs"),
-            file: "iotmq.log".into(),
-            error_file: None,
+            filename: "iotmq.log".into(),
+            error_filename: None,
             rotation_size: 100,
             rotation_days: 30,
         }
@@ -76,7 +79,7 @@ impl Default for Console {
     }
 }
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Debug, Clone, Copy)]
 #[serde(rename_all = "lowercase")]
 pub enum Level {
     Trace,
@@ -98,48 +101,66 @@ impl Level {
     }
 }
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Debug, Clone, Copy)]
 #[serde(rename_all = "lowercase")]
 pub enum Format {
     Json,
     Text,
 }
 
+fn layer<W, S>(format: Format, writer: W, filter: LevelFilter) -> Box<dyn Layer<S> + Send + Sync>
+where
+    W: for<'writer> fmt::MakeWriter<'writer> + Send + Sync + 'static,
+    S: Subscriber + for<'a> registry::LookupSpan<'a>,
+{
+    match format {
+        Format::Text => fmt::layer()
+            .with_ansi(true)
+            .with_line_number(true)
+            .with_writer(writer)
+            .with_filter(filter)
+            .boxed(),
+        Format::Json => {
+            fmt::layer().json().flatten_event(true).with_writer(writer).with_filter(filter).boxed()
+        }
+    }
+}
 /// init log
 pub fn init(log: &Log) -> Result<()> {
     fs::create_dir_all(&log.file.dir)?;
 
-    // main log layer
-    let main_appender = log.file.appender(&log.file.file)?;
-    let (main_writer, main_guard) = main_appender.get_non_blocking_appender();
-    let mut guards = vec![main_guard];
-    let main_layer =
-        fmt::layer().json().with_writer(main_writer).with_filter(log.file.level.filter());
+    let mut guards = Vec::new();
 
-    // error log layer
-    let error_layer = if let Some(error_file) = &log.file.error_file {
-        let error_appender = log.file.appender(error_file)?;
-        let (error_writer, error_guard) = error_appender.get_non_blocking_appender();
-        let error_layer =
-            fmt::layer().json().with_writer(error_writer).with_filter(LevelFilter::ERROR);
+    // Create the main log layer
+    let (main_writer, main_guard) =
+        log.file.appender(&log.file.filename)?.get_non_blocking_appender();
+    guards.push(main_guard);
+    let main_layer = layer(log.file.format, main_writer, log.file.level.filter());
+
+    // Create the error log layer
+    let error_layer = if let Some(error_file) = &log.file.error_filename {
+        let (error_writer, error_guard) =
+            log.file.appender(error_file)?.get_non_blocking_appender();
         guards.push(error_guard);
+        let error_layer = layer(log.file.format, error_writer, LevelFilter::ERROR);
         Some(error_layer)
     } else {
         None
     };
 
-    // console log layer
+    // Create the console log layer
     let console_layer = if log.console.enable {
-        let console_layer = fmt::layer()
-            .with_line_number(true)
-            .with_ansi(true)
-            .with_filter(log.console.level.filter());
+        let console_layer = layer(log.console.format, std::io::stdout, log.console.level.filter());
         Some(console_layer)
     } else {
         None
     };
 
-    tracing_subscriber::registry().with(main_layer).with(error_layer).with(console_layer).init();
+    tracing_subscriber::registry()
+        .with(main_layer)
+        .with(error_layer)
+        .with(console_layer)
+        .try_init()?;
     let _ = LOG_GUARDS.set(guards);
     Ok(())
 }
