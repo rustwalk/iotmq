@@ -1,4 +1,4 @@
-use crate::Log;
+use crate::logger::Log;
 use anyhow::{Result, bail};
 use arc_swap::ArcSwap;
 use config::{Environment, File};
@@ -10,7 +10,6 @@ use std::{env, fs, path::Path, path::PathBuf, sync::Arc};
 const ENV_CONFIG: &str = "IOTMQ_CONFIG";
 const CONFIG_FILE: &str = "iotmq.toml";
 const CONFIG_DIR: &str = "./config";
-const CONFIG_EXTS: &[&str] = &["toml", "yaml", "json", "ini"];
 
 #[derive(Deserialize, Debug)]
 pub struct Config {
@@ -104,11 +103,6 @@ impl ConfigManager {
                 }
 
                 if path.file_name() == Some(OsStr::new(CONFIG_FILE)) {
-                    return None;
-                }
-
-                let ext = path.extension()?.to_str()?.to_ascii_lowercase();
-                if !CONFIG_EXTS.contains(&ext.as_str()) {
                     return None;
                 }
 

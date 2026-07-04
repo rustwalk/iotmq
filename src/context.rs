@@ -1,4 +1,4 @@
-use crate::config::ConfigManager;
+use crate::config::{Config, ConfigManager};
 use std::sync::Arc;
 use tokio::sync::broadcast;
 
@@ -11,14 +11,17 @@ pub enum ShutdownReason {
 #[derive(Clone)]
 pub struct Context {
     tx: broadcast::Sender<ShutdownReason>,
-    pub config: Arc<ConfigManager>,
+    config: Arc<ConfigManager>,
 }
 
 impl Context {
-    pub fn new() -> Self {
+    pub fn init(config: ConfigManager) -> Self {
         let (tx, _) = broadcast::channel::<ShutdownReason>(8);
-        let config = ConfigManager::init().unwrap();
         Self { tx, config: Arc::new(config) }
+    }
+
+    pub fn config(&self) -> Arc<Config> {
+        self.config.read()
     }
 
     pub fn subscribe(&self) -> broadcast::Receiver<ShutdownReason> {

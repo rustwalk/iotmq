@@ -42,14 +42,19 @@ addr = "[::]:8888"
 ##------------------------------------------------
 ##   Log
 ##------------------------------------------------
-[log]
-level = "debug"     # trace | debug | info | warn | error , default: info
-format = "json"    # json | text , default: json
-dir = "./logs"     # log directory
-file = "iotmq.log" # log filename , default: iotmq.log
-max_age = 7        # log retention days , default: 30
-max_size = 32      # log file size (MB) , default: 128
-max_count = 100    # log file retention nums , default: 100
+[log.file]
+level = "info"              # trace | debug | info | warn | error , default: info
+format = "json"             # json | text , default: json
+dir = "./logs"              # log file directory, default: ./logs
+file = "iotmq.log"          # log filename , default: iotmq.log
+error_file = "error.log"    # error log filename, default: error.log
+rotation_size = 100         # rotation log file size (MB) , default: 100
+rotation_days = 30          # log file retention days , default: 30
+
+[log.console]
+enable = true      # enable console log , default: false
+level = "debug"     # trace | debug | info | warn | error , default: warn
+format = "text"    # json | text , default: text
 
 ##------------------------------------------------
 ##   Cluster

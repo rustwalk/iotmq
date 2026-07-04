@@ -6,8 +6,12 @@ edition = "2024"
 [dependencies]
 tokio = { version = "1.52.3", features = ["full"] }
 axum = "0.8.9"
-thiserror = "2.0.17"
 anyhow = "1.0.100"
 serde = { version = "1.0.228", features = ["derive"] }
 arc-swap = "1.9.2"
 config = "0.15.25"
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["json"] }
+tracing-rolling-file = { version = "0.1.3", features = ["non-blocking"] }
+tracing-appender = "0.2.5"
+once_cell = "1.21.4"
