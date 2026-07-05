@@ -1,6 +1,7 @@
 use iotmq::Server;
 
 fn main() {
-    Server::new().run();
-    loop {}
+    if let Err(e) = Server::start() {
+        eprintln!("{}", e);
+    }
 }

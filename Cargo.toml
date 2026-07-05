@@ -2,6 +2,13 @@
 name = "iotmq"
 version = "0.1.0"
 edition = "2024"
+description = "IoTMQ is a high-performance MQTT broker for IoT, Powered by Rust, It fully implements the MQTT protocol V3.x and V5"
+repository = "https://github.com/rustwalk/iotmq"
+documentation = "https://docs.rs/iotmq"
+homepage = "https://iotmq.io"
+keywords = ["mqtt", "iot"]
+categories = ["network-programming"]
+license = "MIT"
 
 [dependencies]
 tokio = { version = "1.52.3", features = ["full"] }
