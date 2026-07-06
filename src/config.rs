@@ -5,7 +5,8 @@ use config::{Environment, File};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::ffi::OsStr;
-use std::{env, fs, path::Path, path::PathBuf, sync::Arc};
+use std::path::Path;
+use std::{env, fs, path::PathBuf, sync::Arc};
 
 const ENV_CONFIG: &str = "IOTMQ_CONFIG";
 const CONFIG_FILE: &str = "iotmq.toml";
@@ -38,14 +39,13 @@ impl Config {
 
 pub struct ConfigManager {
     config: ArcSwap<Config>,
+    path: PathBuf,
 }
 
 impl ConfigManager {
     /// Init config manager
-    pub fn init() -> Result<Self> {
-        let manager =
-            Self { config: ArcSwap::new(Arc::new(Config { log: Log { ..Default::default() } })) };
-        manager.reload()?;
+    pub fn init(path: PathBuf) -> Result<Self> {
+        let manager = Self { config: ArcSwap::new(Arc::new(Self::load(&path)?)), path };
         Ok(manager)
     }
 
@@ -56,14 +56,23 @@ impl ConfigManager {
 
     /// Reload configs
     pub fn reload(&self) -> Result<()> {
-        let config = Self::load()?;
+        let config = Self::load(&self.path)?;
         config.validate()?;
         self.config.store(Arc::new(config));
         Ok(())
     }
 
     /// Get static config path
-    fn static_config() -> Result<PathBuf> {
+    pub fn static_config(config: Option<PathBuf>) -> Result<PathBuf> {
+        // Command config
+        if let Some(path) = config {
+            if !path.is_file() {
+                bail!("Config file does not exist: {}", path.display());
+            }
+            return Ok(path);
+        }
+
+        // Environment variable
         if let Ok(path) = env::var(ENV_CONFIG) {
             let path = PathBuf::from(path);
             if !path.is_file() {
@@ -72,6 +81,7 @@ impl ConfigManager {
             return Ok(path);
         }
 
+        // CONFIG_DIR or /etc/iotmq
         let paths = [
             PathBuf::from(CONFIG_DIR).join(CONFIG_FILE),
             PathBuf::from("/etc/iotmq").join(CONFIG_FILE),
@@ -113,11 +123,10 @@ impl ConfigManager {
     }
 
     /// Load configs
-    fn load() -> Result<Config> {
+    fn load(static_config: &Path) -> Result<Config> {
         let mut builder = config::Config::builder();
 
         // static config
-        let static_config = Self::static_config()?;
         builder = builder.add_source(File::from(static_config).required(true));
 
         // dynamic configs

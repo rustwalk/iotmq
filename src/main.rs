@@ -1,7 +1,5 @@
-use iotmq::Server;
+use iotmq::command;
 
 fn main() {
-    if let Err(e) = Server::start() {
-        eprintln!("{}", e);
-    }
+    command::exec();
 }

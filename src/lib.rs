@@ -1,6 +1,7 @@
 mod api;
 mod broker;
-mod command;
+//pub
+pub mod command;
 mod config;
 mod error;
 mod logger;
