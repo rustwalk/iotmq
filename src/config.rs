@@ -15,14 +15,21 @@ const CONFIG_DIR: &str = "./config";
 #[derive(Deserialize, Debug)]
 pub struct Config {
     pub log: Log,
-    //pub http: Http,
-    //pub mqtt: Mqtt,
+    //pub server: Server,
+    pub mqtt: Mqtt,
     //#[serde(rename = "listener")]
     //pub listeners: HashMap<String, Listener>,
 }
 
 #[derive(Deserialize, Debug)]
-pub struct Http {}
+#[serde(default)]
+pub struct Server {}
+
+impl Default for Server {
+    fn default() -> Self {
+        Self {}
+    }
+}
 
 #[derive(Deserialize, Debug)]
 pub struct Mqtt {}
@@ -44,8 +51,9 @@ pub struct ConfigManager {
 
 impl ConfigManager {
     /// Init config manager
-    pub fn init(path: PathBuf) -> Result<Self> {
-        let manager = Self { config: ArcSwap::new(Arc::new(Self::load(&path)?)), path };
+    pub fn init(path: &Path) -> Result<Self> {
+        let manager =
+            Self { config: ArcSwap::new(Arc::new(Self::load(&path)?)), path: path.to_path_buf() };
         Ok(manager)
     }
 

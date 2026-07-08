@@ -1,5 +1,5 @@
-use iotmq::command;
+use iotmq::Cli;
 
 fn main() {
-    command::exec();
+    Cli::run();
 }

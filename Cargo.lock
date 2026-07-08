@@ -632,6 +632,7 @@ dependencies = [
  "config",
  "once_cell",
  "serde",
+ "serde_json",
  "tokio",
  "tracing",
  "tracing-appender",

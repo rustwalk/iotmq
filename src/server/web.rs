@@ -6,7 +6,16 @@ pub struct WebServer;
 
 impl WebServer {
     pub async fn run(ctx: Context) -> Result<()> {
-        info!("Starting web server");
+        info!("Web server started");
+        let mut rx = ctx.subscribe();
+        loop {
+            tokio::select! {
+                cmd = rx.recv() => {
+                    break;
+                }
+            }
+        }
+        info!("Web server stopped");
         Ok(())
     }
 }
