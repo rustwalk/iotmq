@@ -1,20 +1,24 @@
 ##------------------------------------------------
 ##   Listeners
 ##------------------------------------------------
-[listener.tcp]
+[[listener]]
+protocol = "tcp"
 addr = "[::]:1883"
 proxy_protocol = false
 max_connections = 102400
 
-[listener.tls]
+[[listener]]
+protocol = "tls"
 addr = "0.0.0.0:8883"
 cert = "./config/iotmq.crt"
 key = "./config/iotmq.key"
 
-[listener.ws]
+[[listener]]
+protocol = "ws"
 addr = "0.0.0.0:8083"
 
-[listener.wss]
+[[listener]]
+protocol = "wss"
 addr = "0.0.0.0:8084"
 cert = "./config/iotmq.crt"
 key = "./config/iotmq.key"
@@ -34,10 +38,10 @@ session_expiry_interval = 300
 retain_available = true
 
 ##------------------------------------------------
-##   Server
+##   Web
 ##------------------------------------------------
-[server]
-addr = "[::]:8888"
+[web]
+addr = "[::]:8080"
 
 ##------------------------------------------------
 ##   Log

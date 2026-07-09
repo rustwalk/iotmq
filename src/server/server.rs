@@ -1,5 +1,5 @@
 use crate::command::Ret;
-use crate::server::context::Command;
+use crate::context::Event;
 use crate::{ConfigManager, Context, WebServer, command::*, logger::Log};
 use anyhow::Result;
 use std::fs;
@@ -18,6 +18,8 @@ impl Server {
         let config_path = ConfigManager::static_config(config)?; // Get config path
         let config = ConfigManager::init(&config_path)?; // init config
         Log::init(&config.read().log)?; // init log
+
+        println!("{:?}", config.read());
 
         info!("Server starting...");
 
@@ -53,7 +55,7 @@ impl Server {
             // Wait command
             let cmd = loop {
                 match rx.recv().await {
-                    Ok(Command::Reload) => continue,
+                    Ok(Event::Reload) => continue,
                     cmd => {
                         break cmd;
                     }
@@ -68,7 +70,7 @@ impl Server {
         });
 
         info!("Server stopped");
-        if let Ok(Command::Restart) = cmd {
+        if let Ok(Event::Restart) = cmd {
             Self::restart()?;
         }
         Ok(())

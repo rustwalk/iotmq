@@ -3,7 +3,7 @@ use std::sync::Arc;
 use tokio::sync::broadcast;
 
 #[derive(Clone, Debug)]
-pub enum Command {
+pub enum Event {
     Stop,
     Reload,
     Restart,
@@ -11,13 +11,13 @@ pub enum Command {
 
 #[derive(Clone)]
 pub struct Context {
-    tx: broadcast::Sender<Command>,
+    tx: broadcast::Sender<Event>,
     pub config: Arc<ConfigManager>,
 }
 
 impl Context {
     pub fn init(config: ConfigManager) -> Self {
-        let (tx, _) = broadcast::channel::<Command>(8);
+        let (tx, _) = broadcast::channel::<Event>(8);
         Self { tx, config: Arc::new(config) }
     }
 
@@ -25,19 +25,19 @@ impl Context {
         self.config.read()
     }
 
-    pub fn subscribe(&self) -> broadcast::Receiver<Command> {
+    pub fn subscribe(&self) -> broadcast::Receiver<Event> {
         self.tx.subscribe()
     }
 
     pub fn stop(&self) {
-        let _ = self.tx.send(Command::Stop);
+        let _ = self.tx.send(Event::Stop);
     }
 
     pub fn reload(&self) {
-        let _ = self.tx.send(Command::Reload);
+        let _ = self.tx.send(Event::Reload);
     }
 
     pub fn restart(&self) {
-        let _ = self.tx.send(Command::Restart);
+        let _ = self.tx.send(Event::Restart);
     }
 }

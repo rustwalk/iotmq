@@ -1,12 +1,14 @@
+use crate::Listener;
 use crate::logger::Log;
+use crate::server::web::WebConfig;
 use anyhow::{Result, bail};
 use arc_swap::ArcSwap;
 use config::{Environment, File};
 use serde::Deserialize;
-use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::path::Path;
 use std::{env, fs, path::PathBuf, sync::Arc};
+use tracing::info;
 
 const ENV_CONFIG: &str = "IOTMQ_CONFIG";
 const CONFIG_FILE: &str = "iotmq.toml";
@@ -15,27 +17,10 @@ const CONFIG_DIR: &str = "./config";
 #[derive(Deserialize, Debug)]
 pub struct Config {
     pub log: Log,
-    //pub server: Server,
-    pub mqtt: Mqtt,
-    //#[serde(rename = "listener")]
-    //pub listeners: HashMap<String, Listener>,
+    pub web: WebConfig,
+    #[serde(rename = "listener")]
+    pub listeners: Vec<Listener>,
 }
-
-#[derive(Deserialize, Debug)]
-#[serde(default)]
-pub struct Server {}
-
-impl Default for Server {
-    fn default() -> Self {
-        Self {}
-    }
-}
-
-#[derive(Deserialize, Debug)]
-pub struct Mqtt {}
-
-#[derive(Deserialize, Debug)]
-pub struct Listener {}
 
 impl Config {
     // Validate config
@@ -67,6 +52,7 @@ impl ConfigManager {
         let config = Self::load(&self.path)?;
         config.validate()?;
         self.config.store(Arc::new(config));
+        info!("Reloaded config: {:?}", self.path);
         Ok(())
     }
 
