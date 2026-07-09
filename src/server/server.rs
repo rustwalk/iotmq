@@ -3,6 +3,7 @@ use crate::server::context::Command;
 use crate::{ConfigManager, Context, WebServer, command::*, logger::Log};
 use anyhow::Result;
 use std::fs;
+use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};
@@ -12,76 +13,74 @@ use tracing::{debug, error, info};
 pub struct Server;
 
 impl Server {
+    /// Server run
     pub fn run(config: Option<PathBuf>) -> Result<()> {
-        let config_path = ConfigManager::static_config(config)?; // config path
-        loop {
-            let config = ConfigManager::init(&config_path)?; // init config
+        let config_path = ConfigManager::static_config(config)?; // Get config path
+        let config = ConfigManager::init(&config_path)?; // init config
+        Log::init(&config.read().log)?; // init log
 
-            Log::init(&config.read().log)?; // init log
+        info!("Server starting...");
 
-            info!("Server starting...");
+        let ctx = Context::init(config); // init context
+        let mut rx = ctx.subscribe();
 
-            let ctx = Context::init(config); // init context
-            let mut rx = ctx.subscribe();
-
-            let rt = tokio::runtime::Runtime::new()?;
-            let cmd = rt.block_on(async {
-                // Web server
-                let web_ctx = ctx.clone();
-                let web_task = tokio::spawn(async move {
-                    if let Err(e) = WebServer::run(web_ctx).await {
-                        error!("Web server error: {}", e);
-                    }
-                });
-
-                // Command server
-                let cmd_ctx = ctx.clone();
-                let cmd_task = tokio::spawn(async {
-                    if let Err(e) = Self::command(cmd_ctx).await {
-                        error!("Command server error: {}", e);
-                    }
-                });
-
-                // Signal server
-                let signal_ctx = ctx.clone();
-                let signal_task = tokio::spawn(async {
-                    if let Err(e) = Self::signal(signal_ctx).await {
-                        error!("Signal server error: {}", e);
-                    }
-                });
-
-                let cmd = loop {
-                    match rx.recv().await {
-                        Ok(Command::Reload) => continue,
-                        cmd => {
-                            break cmd;
-                        }
-                    }
-                };
-
-                cmd_task.abort();
-                signal_task.abort();
-                let _ = tokio::join!(web_task, cmd_task, signal_task);
-
-                cmd
+        let rt = tokio::runtime::Runtime::new()?;
+        let cmd = rt.block_on(async {
+            // Web server
+            let web_ctx = ctx.clone();
+            let web_task = tokio::spawn(async move {
+                if let Err(e) = WebServer::run(web_ctx).await {
+                    error!("Web server error: {}", e);
+                }
             });
 
-            match cmd {
-                Ok(Command::Stop) | Err(_) => break,
-                _ => (),
-            }
-        }
+            // Command server
+            let cmd_ctx = ctx.clone();
+            let cmd_task = tokio::spawn(async {
+                if let Err(e) = Self::command(cmd_ctx).await {
+                    error!("Command server error: {}", e);
+                }
+            });
+
+            // Signal server
+            let signal_ctx = ctx.clone();
+            let signal_task = tokio::spawn(async {
+                if let Err(e) = Self::signal(signal_ctx).await {
+                    error!("Signal server error: {}", e);
+                }
+            });
+
+            // Wait command
+            let cmd = loop {
+                match rx.recv().await {
+                    Ok(Command::Reload) => continue,
+                    cmd => {
+                        break cmd;
+                    }
+                }
+            };
+
+            cmd_task.abort();
+            signal_task.abort();
+            let _ = tokio::join!(web_task, cmd_task, signal_task);
+
+            cmd
+        });
 
         info!("Server stopped");
+        if let Ok(Command::Restart) = cmd {
+            Self::restart()?;
+        }
         Ok(())
     }
 
-    fn reload(ctx: Context) -> Result<()> {
-        ctx.config.reload()?;
-        ctx.reload();
-        Ok(())
+    pub fn restart() -> Result<()> {
+        let exe = std::env::current_exe()?;
+        let err = std::process::Command::new(exe).args(std::env::args().skip(1)).exec();
+        Err(err.into())
     }
 
+    /// Listen command
     async fn command(ctx: Context) -> Result<()> {
         if fs::exists(SOCK)? {
             fs::remove_file(SOCK)?;
@@ -103,6 +102,7 @@ impl Server {
         }
     }
 
+    /// Command execute
     async fn command_recv(ctx: Context, stream: UnixStream) -> Result<()> {
         let mut reader = BufReader::new(stream);
         let mut line = String::new();
@@ -140,6 +140,7 @@ impl Server {
         Ok(())
     }
 
+    /// Signal listen
     async fn signal(ctx: Context) -> Result<()> {
         let mut sigterm = signal(SignalKind::terminate())?;
         let mut sigint = signal(SignalKind::interrupt())?;

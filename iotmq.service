@@ -1,0 +1,11 @@
+[Unit]
+Description=IoTMQ Server
+
+[Service]
+ExecStart=/usr/bin/iotmq start
+ExecReload=/usr/bin/iotmq reload
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

@@ -24,3 +24,17 @@ tracing-rolling-file = { version = "0.1.3", features = ["non-blocking"] }
 tracing-appender = "0.2.5"
 once_cell = "1.21.4"
 clap = { version = "4.6.1", features = ["derive"] }
+
+[package.metadata.generate-rpm]
+assets = [
+    { source = "target/release/iotmq", dest = "/usr/bin/iotmq", mode = "755" },
+    { source = "iotmq.service", dest = "/usr/lib/systemd/system/iotmq.service", mode = "644" },
+    { source = "config/iotmq.toml", dest = "/etc/iotmq/iotmq.toml", mode = "644", config = true },
+]
+
+[package.metadata.deb]
+assets = [
+    ["target/release/iotmq", "/usr/bin/iotmq", "755"],
+    ["iotmq.service", "/lib/systemd/system/iotmq.service", "644"],
+    ["config/iotmq.toml", "/etc/iotmq/iotmq.toml", "644"],
+]
