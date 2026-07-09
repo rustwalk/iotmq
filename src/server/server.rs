@@ -1,9 +1,10 @@
+use crate::command::Ret;
 use crate::server::context::Command;
-use crate::{ConfigManager, Context, WebServer, command::Cmd, command::SOCK, logger::Log};
+use crate::{ConfigManager, Context, WebServer, command::*, logger::Log};
 use anyhow::Result;
 use std::fs;
 use std::path::{Path, PathBuf};
-use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};
 use tokio::signal::unix::{SignalKind, signal};
 use tracing::{debug, error, info};
@@ -75,6 +76,12 @@ impl Server {
         Ok(())
     }
 
+    fn reload(ctx: Context) -> Result<()> {
+        ctx.config.reload()?;
+        ctx.reload();
+        Ok(())
+    }
+
     async fn command(ctx: Context) -> Result<()> {
         if fs::exists(SOCK)? {
             fs::remove_file(SOCK)?;
@@ -105,11 +112,18 @@ impl Server {
         debug!("Server received command: {}", line);
 
         let cmd: Cmd = serde_json::from_str(&line)?;
+        let mut ret = Ret { ok: true, msg: "".into() };
+
         match cmd.cmd.as_str() {
-            "reload" => {
-                ctx.config.reload()?;
-                ctx.reload();
-            }
+            "reload" => match ctx.config.reload() {
+                Ok(_) => ctx.reload(),
+                Err(e) => {
+                    let err = format!("Reload config error: {}", e);
+                    error!("{}", err);
+                    ret.ok = false;
+                    ret.msg = err;
+                }
+            },
             "stop" => {
                 ctx.stop();
             }
@@ -118,6 +132,11 @@ impl Server {
             }
             _ => {}
         }
+
+        let mut ret = serde_json::to_vec(&ret)?;
+        ret.push(b'\n');
+        let mut stream = reader.into_inner();
+        stream.write_all(&ret).await?;
         Ok(())
     }
 
@@ -141,7 +160,7 @@ impl Server {
                     debug!("Received signal: SIGHUP");
                     match ctx.config.reload() {
                         Ok(_) => ctx.reload(),
-                        Err(e) => error!("{}", e)
+                        Err(e) => error!("Reload config error: {}", e)
                     }
                 }
             }

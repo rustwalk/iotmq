@@ -1,7 +1,7 @@
 use crate::Server;
 use clap::{Parser, Subcommand};
 use serde::{Deserialize, Serialize};
-use std::io::Write;
+use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 
@@ -30,7 +30,7 @@ impl Cli {
         match cli.command.unwrap_or(Command::Start { config: None }) {
             Command::Start { config } => {
                 if let Err(e) = Server::run(config) {
-                    eprintln!("Failed to run server: {}", e);
+                    eprintln!("Run server error: {}", e);
                 }
             }
             Command::Stop => Cmd::send("stop"),
@@ -61,14 +61,38 @@ impl Cmd {
         };
 
         let send = Cmd { cmd: cmd.into() };
+        let mut send = match serde_json::to_vec(&send) {
+            Ok(send) => send,
+            Err(e) => {
+                eprintln!("Encode command {} error: {}", cmd, e);
+                return;
+            }
+        };
+        send.push(b'\n');
 
-        if let Err(e) = serde_json::to_writer(&mut stream, &send) {
-            eprintln!("Failed to send {} command: {}", cmd, e);
+        if let Err(e) = stream.write_all(&send) {
+            eprintln!("Send command {} error: {}", cmd, e);
+        }
+
+        let mut reader = BufReader::new(stream);
+        let mut line = String::new();
+
+        if let Err(e) = reader.read_line(&mut line) {
+            eprintln!("Receive {} response  error: {}", cmd, e);
             return;
+        }
+        let line = line.trim_end();
+
+        let ret: Ret = match serde_json::from_str(line) {
+            Ok(ret) => ret,
+            Err(e) => {
+                eprintln!("Receive {} response error: {}", cmd, e);
+                return;
+            }
         };
 
-        if let Err(e) = stream.write_all(b"\n") {
-            eprintln!("Failed to send {} command: {}", cmd, e);
+        if !ret.ok {
+            eprintln!("{}", ret.msg);
         }
     }
 }
