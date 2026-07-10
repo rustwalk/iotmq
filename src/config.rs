@@ -1,6 +1,6 @@
 use crate::Listener;
-use crate::logger::Log;
-use crate::server::web::WebConfig;
+use crate::LogConfig;
+use crate::WebConfig;
 use anyhow::{Result, bail};
 use arc_swap::ArcSwap;
 use config::{Environment, File};
@@ -16,7 +16,7 @@ const CONFIG_DIR: &str = "./config";
 
 #[derive(Deserialize, Debug)]
 pub struct Config {
-    pub log: Log,
+    pub log: LogConfig,
     pub web: WebConfig,
     #[serde(rename = "listener")]
     pub listeners: Vec<Listener>,

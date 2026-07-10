@@ -1,8 +1,9 @@
 use crate::config::{Config, ConfigManager};
+use std::cmp::PartialEq;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Event {
     Stop,
     Reload,
@@ -39,5 +40,16 @@ impl Context {
 
     pub fn restart(&self) {
         let _ = self.tx.send(Event::Restart);
+    }
+
+    pub async fn shutdown(rx: &mut broadcast::Receiver<Event>) -> Event {
+        loop {
+            match rx.recv().await {
+                Ok(Event::Reload) => continue,
+                Ok(event) => return event,
+                Err(broadcast::error::RecvError::Closed) => return Event::Stop,
+                Err(broadcast::error::RecvError::Lagged(_)) => continue,
+            }
+        }
     }
 }

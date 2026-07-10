@@ -11,6 +11,7 @@ mod server;
 pub use broker::broker::*;
 pub use command::Cli;
 pub use config::ConfigManager;
+pub use logger::{Log, LogConfig};
 pub use server::context;
 pub use server::context::Context;
 pub use server::server::Server;

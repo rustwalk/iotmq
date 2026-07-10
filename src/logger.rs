@@ -12,20 +12,22 @@ static LOG_GUARDS: OnceCell<Vec<WorkerGuard>> = OnceCell::new();
 
 #[derive(Deserialize, Debug, Clone)]
 #[serde(default)]
-pub struct Log {
+pub struct LogConfig {
     pub file: File,
     pub console: Console,
 }
 
-impl Default for Log {
+impl Default for LogConfig {
     fn default() -> Self {
         Self { file: File::default(), console: Console::default() }
     }
 }
 
+pub struct Log;
+
 impl Log {
     /// init log
-    pub fn init(log: &Log) -> Result<()> {
+    pub fn init(log: &LogConfig) -> Result<()> {
         fs::create_dir_all(&log.file.dir)?;
 
         let mut guards = Vec::new();

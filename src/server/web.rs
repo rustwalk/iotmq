@@ -1,5 +1,4 @@
 use crate::Context;
-use crate::context::Event;
 use anyhow::Result;
 use axum::Router;
 use serde::Deserialize;
@@ -34,12 +33,7 @@ impl WebServer {
         axum::serve(ln, router)
             .with_graceful_shutdown(async move {
                 let mut rx = ctx.subscribe();
-                loop {
-                    match rx.recv().await {
-                        Ok(Event::Reload) => (),
-                        _ => break,
-                    }
-                }
+                let _ = Context::shutdown(&mut rx).await;
             })
             .await?;
 

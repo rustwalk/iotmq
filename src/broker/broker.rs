@@ -1,5 +1,8 @@
+use crate::Context;
+use anyhow::Result;
 use serde::Deserialize;
 use std::net::SocketAddr;
+use tracing::info;
 
 #[derive(Debug, Deserialize)]
 pub struct Listener {
@@ -26,8 +29,8 @@ pub enum Protocol {
 pub struct Broker;
 
 impl Broker {
-    // pub async fn run(ctx: Context) -> Result<()> {
-    //     info!("Starting mqtt server");
-    //     Ok(())
-    // }
+    pub async fn run(ctx: Context) -> Result<()> {
+        info!("Starting mqtt server");
+        Ok(())
+    }
 }
