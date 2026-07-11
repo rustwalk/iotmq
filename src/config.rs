@@ -18,7 +18,7 @@ const CONFIG_DIR: &str = "./config";
 pub struct Config {
     pub log: LogConfig,
     pub web: WebConfig,
-    #[serde(rename = "listener")]
+    #[serde(rename = "listener", default = "Config::default_listeners")]
     pub listeners: Vec<Listener>,
 }
 
@@ -26,6 +26,11 @@ impl Config {
     // Validate config
     pub fn validate(&self) -> Result<()> {
         Ok(())
+    }
+
+    // Default listeners
+    fn default_listeners() -> Vec<Listener> {
+        vec![Listener::default()]
     }
 }
 

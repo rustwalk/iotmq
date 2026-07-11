@@ -29,7 +29,7 @@ impl Server {
             let broker_ctx = ctx.clone();
             let broker_task = tokio::spawn(async move {
                 if let Err(e) = Broker::run(broker_ctx.clone()).await {
-                    error!("Broker error: {}", e);
+                    error!("MQTT Broker error: {}", e);
                     broker_ctx.stop();
                 }
             });
@@ -44,11 +44,11 @@ impl Server {
             });
 
             // Command server
-            let cmd_ctx = ctx.clone();
-            let cmd_task = tokio::spawn(async move {
-                if let Err(e) = Self::command(cmd_ctx.clone()).await {
+            let command_ctx = ctx.clone();
+            let command_task = tokio::spawn(async move {
+                if let Err(e) = Self::command(command_ctx.clone()).await {
                     error!("Command server error: {}", e);
-                    cmd_ctx.stop();
+                    command_ctx.stop();
                 }
             });
 
@@ -63,9 +63,11 @@ impl Server {
 
             // Wait event
             let event = Context::shutdown(&mut rx).await;
+            println!("event exit: {:?}", event);
 
             // Wait all task shutdown
-            let _ = tokio::join!(web_task, broker_task, cmd_task, signal_task);
+            let _ = tokio::join!(web_task, broker_task, command_task, signal_task);
+            println!("task exit");
 
             event
         });

@@ -9,19 +9,19 @@ max_connections = 102400
 
 [[listener]]
 protocol = "tls"
-addr = "0.0.0.0:8883"
+addr = "[::]:1883"
 cert = "./config/iotmq.crt"
 key = "./config/iotmq.key"
 
-[[listener]]
-protocol = "ws"
-addr = "0.0.0.0:8083"
-
-[[listener]]
-protocol = "wss"
-addr = "0.0.0.0:8084"
-cert = "./config/iotmq.crt"
-key = "./config/iotmq.key"
+#[[listener]]
+#protocol = "ws"
+#addr = "0.0.0.0:8083"
+#
+#[[listener]]
+#protocol = "wss"
+#addr = "0.0.0.0:8084"
+#cert = "./config/iotmq.crt"
+#key = "./config/iotmq.key"
 
 ##------------------------------------------------
 ##   MQTT
