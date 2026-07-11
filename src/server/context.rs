@@ -1,10 +1,11 @@
 use crate::config::{Config, ConfigManager};
 use std::cmp::PartialEq;
 use std::sync::Arc;
-use tokio::sync::broadcast;
+use tokio::sync::watch;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Event {
+    Running,
     Stop,
     Reload,
     Restart,
@@ -12,13 +13,13 @@ pub enum Event {
 
 #[derive(Clone)]
 pub struct Context {
-    tx: broadcast::Sender<Event>,
+    tx: watch::Sender<Event>,
     pub config: Arc<ConfigManager>,
 }
 
 impl Context {
     pub fn init(config: ConfigManager) -> Self {
-        let (tx, _) = broadcast::channel::<Event>(8);
+        let (tx, _) = watch::channel(Event::Running);
         Self { tx, config: Arc::new(config) }
     }
 
@@ -26,29 +27,31 @@ impl Context {
         self.config.read()
     }
 
-    pub fn subscribe(&self) -> broadcast::Receiver<Event> {
+    pub fn subscribe(&self) -> watch::Receiver<Event> {
         self.tx.subscribe()
     }
 
     pub fn stop(&self) {
-        let _ = self.tx.send(Event::Stop);
+        self.tx.send_replace(Event::Stop);
     }
 
     pub fn reload(&self) {
-        let _ = self.tx.send(Event::Reload);
+        self.tx.send_replace(Event::Reload);
     }
 
     pub fn restart(&self) {
-        let _ = self.tx.send(Event::Restart);
+        self.tx.send_replace(Event::Restart);
     }
 
-    pub async fn shutdown(rx: &mut broadcast::Receiver<Event>) -> Event {
+    pub async fn shutdown(rx: &mut watch::Receiver<Event>) -> Event {
         loop {
-            match rx.recv().await {
-                Ok(Event::Reload) => continue,
-                Ok(event) => return event,
-                Err(broadcast::error::RecvError::Closed) => return Event::Stop,
-                Err(broadcast::error::RecvError::Lagged(_)) => continue,
+            match rx.borrow_and_update().clone() {
+                Event::Running | Event::Reload => {}
+                event => return event,
+            }
+
+            if rx.changed().await.is_err() {
+                return Event::Stop;
             }
         }
     }

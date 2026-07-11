@@ -1,12 +1,16 @@
 use crate::Context;
-use crate::context::Event;
-use anyhow::Result;
+use anyhow::{Context as _, Error, Result};
 use serde::Deserialize;
 use std::io::ErrorKind;
 use std::net::{IpAddr, Ipv6Addr, SocketAddr};
+use std::sync::Arc;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::task::JoinSet;
-use tracing::{debug, error, info};
+use tokio_rustls::TlsAcceptor;
+use tokio_rustls::rustls::ServerConfig;
+use tokio_rustls::rustls::pki_types::pem::PemObject;
+use tokio_rustls::rustls::pki_types::{CertificateDer, PrivateKeyDer};
+use tracing::{debug, info};
 
 #[derive(Debug, Deserialize, Clone, Copy)]
 #[serde(rename_all = "lowercase")]
@@ -57,7 +61,7 @@ impl Default for Listener {
 
 impl Listener {
     /// Tcp accept
-    async fn accept<H, F>(&self, ctx: Context, handler: H) -> Result<Event>
+    async fn accept<H, F>(&self, ctx: Context, handler: H) -> Result<()>
     where
         H: Fn(TcpStream) -> F + Send + Sync + Clone + 'static,
         F: Future<Output = Result<()>> + Send + 'static,
@@ -66,20 +70,23 @@ impl Listener {
         info!("MQTT Broker {} listening on {}", self.protocol, self.addr);
 
         let mut rx = ctx.subscribe();
+        let mut connections = JoinSet::new();
         loop {
             tokio::select! {
-                event = Context::shutdown(&mut rx) => return Ok(event),
+                _ = Context::shutdown(&mut rx) => {
+                    connections.abort_all();
+                    while connections.join_next().await.is_some() {}
+                    return Ok(());
+                },
+
                 result = listener.accept() => {
                     match result {
                         Ok((stream, addr)) => {
                             debug!("MQTT Broker {} accepted new connection from {}", self.protocol, addr);
-                            //let _ctx = ctx.clone();
                             let handler = handler.clone();
                             let protocol = self.protocol;
-                            tokio::spawn(async move {
-                                if let Err(e) = handler(stream).await{
-                                    debug!("MQTT Broker {} connect error: {}", protocol,e);
-                                }
+                            connections.spawn(async move {
+                                (handler(stream).await, protocol, addr)
                             });
                         }
 
@@ -87,7 +94,7 @@ impl Listener {
                             match e.kind() {
                                 ErrorKind::ConnectionAborted
                                 | ErrorKind::Interrupted  => {
-                                    debug!("MQTT Broker {} accept interrupted: {}", self.protocol, e);
+                                    debug!("MQTT Broker {} accept interrupted: {:#}", self.protocol, e);
                                     continue;
                                 }
                                 _ => return Err(e.into())
@@ -95,30 +102,70 @@ impl Listener {
                         }
                     }
                 }
+
+                result = connections.join_next(), if !connections.is_empty() => {
+                    match result {
+                        Some(Ok((Err(e), protocol, addr))) => {
+                            debug!(
+                                "MQTT Broker {} connection error from {}: {:#}",
+                                protocol, addr, e
+                            );
+                        }
+                        Some(Err(e)) if !e.is_cancelled() => {
+                            debug!("MQTT Broker connection task failed: {}", e);
+                        }
+                        _ => {}
+                    }
+                }
             }
         }
     }
 
+    /// TLS acceptor
+    fn tls_acceptor(&self) -> Result<TlsAcceptor> {
+        let key_path =
+            self.key.as_ref().context(format!("{} listener requires `key`", self.protocol))?;
+        let cert_path =
+            self.cert.as_ref().context(format!("{} listener requires `cert`", self.protocol))?;
+
+        let key = PrivateKeyDer::from_pem_file(key_path)
+            .context(format!("Failed to open TLS private key: {}", key_path))?;
+        let certs = CertificateDer::pem_file_iter(cert_path)
+            .context(format!("Failed to open TLS certificate: {}", cert_path))?
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .context(format!("Failed to parse TLS certificate: {}", cert_path))?;
+
+        let config = ServerConfig::builder().with_no_client_auth().with_single_cert(certs, key)?;
+        let acceptor = TlsAcceptor::from(Arc::new(config));
+        Ok(acceptor)
+    }
+
     /// Tcp listen
-    async fn tcp(&self, ctx: Context) -> Result<Event> {
-        self.accept(ctx, |stream| async move {
-            let _stream = stream;
+    async fn tcp(&self, ctx: Context) -> Result<()> {
+        self.accept(ctx, |_stream| async move {
+            println!("tcp");
             Ok(())
         })
         .await
     }
 
     /// TLS listen
-    async fn tls(&self, ctx: Context) -> Result<Event> {
-        self.accept(ctx, |stream| async move {
-            let _stream = stream;
-            Ok(())
+    async fn tls(&self, ctx: Context) -> Result<()> {
+        let acceptor = self.tls_acceptor()?;
+
+        self.accept(ctx, move |stream| {
+            let acceptor = acceptor.clone();
+            async move {
+                let _stream = acceptor.accept(stream).await?;
+                println!("tls");
+                Ok(())
+            }
         })
         .await
     }
 
     /// Websocket listen
-    async fn ws(&self, ctx: Context) -> Result<Event> {
+    async fn ws(&self, ctx: Context) -> Result<()> {
         self.accept(ctx, |stream| async move {
             let _stream = stream;
             Ok(())
@@ -127,7 +174,7 @@ impl Listener {
     }
 
     /// Websocket TLS listen
-    async fn wss(&self, ctx: Context) -> Result<Event> {
+    async fn wss(&self, ctx: Context) -> Result<()> {
         self.accept(ctx, |stream| async move {
             let _stream = stream;
             Ok(())
@@ -145,7 +192,6 @@ impl Broker {
 
         let mut tasks = JoinSet::new();
         for listener in listeners {
-            let rx = ctx.subscribe();
             let ctx = ctx.clone();
             tasks.spawn(async move {
                 (
@@ -160,29 +206,36 @@ impl Broker {
             });
         }
 
+        let mut error = None;
+
         while let Some(result) = tasks.join_next().await {
             match result {
                 Ok((result, listener)) => match result {
-                    Ok(event) => {
-                        info!("MQTT Broker listener stop: {} {:?}", listener.addr, event);
+                    Ok(_) => {
+                        info!(
+                            "MQTT Broker {} listener stopped: {}",
+                            listener.protocol, listener.addr
+                        );
                     }
                     Err(e) => {
-                        error!(
-                            "MQTT Broker {} listener error: {} {}",
-                            listener.protocol, listener.addr, e
-                        );
-                        ctx.stop();
-                        tasks.abort_all();
-                        return Err(e);
+                        error = Some(e.context(format!(
+                            "{} listener stopped: {}",
+                            listener.protocol, listener.addr
+                        )));
+                        break;
                     }
                 },
                 Err(e) => {
-                    error!("MQTT Broker listener task error: {}", e);
-                    ctx.stop();
-                    tasks.abort_all();
-                    return Err(e.into());
+                    error = Some(Error::new(e).context("Listener task failed"));
+                    break;
                 }
             }
+        }
+
+        if let Some(e) = error {
+            tasks.abort_all();
+            while tasks.join_next().await.is_some() {}
+            return Err(e);
         }
 
         info!("MQTT Broker Stopped");

@@ -9,7 +9,7 @@ max_connections = 102400
 
 [[listener]]
 protocol = "tls"
-addr = "[::]:1883"
+addr = "[::]:8883"
 cert = "./config/iotmq.crt"
 key = "./config/iotmq.key"
 

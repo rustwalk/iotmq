@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};
 use tokio::signal::unix::{SignalKind, signal};
-use tracing::{debug, error, info};
+use tracing::{error, info};
 
 pub struct Server;
 
@@ -29,7 +29,7 @@ impl Server {
             let broker_ctx = ctx.clone();
             let broker_task = tokio::spawn(async move {
                 if let Err(e) = Broker::run(broker_ctx.clone()).await {
-                    error!("MQTT Broker error: {}", e);
+                    error!("MQTT Broker error: {:#}", e);
                     broker_ctx.stop();
                 }
             });
@@ -63,11 +63,9 @@ impl Server {
 
             // Wait event
             let event = Context::shutdown(&mut rx).await;
-            println!("event exit: {:?}", event);
 
             // Wait all task shutdown
             let _ = tokio::join!(web_task, broker_task, command_task, signal_task);
-            println!("task exit");
 
             event
         });
@@ -122,7 +120,7 @@ impl Server {
 
         reader.read_line(&mut line).await?;
         let line = line.trim_end();
-        debug!("Server received command: {}", line);
+        info!("Server received command: {}", line);
 
         let cmd: Cmd = serde_json::from_str(&line)?;
         let mut ret = Ret { ok: true, msg: "".into() };
@@ -163,19 +161,19 @@ impl Server {
         loop {
             tokio::select! {
                 _ = sigterm.recv() => {
-                    debug!("Received signal: SIGTERM");
+                    info!("Received signal: SIGTERM");
                     ctx.stop();
                     break;
                 }
 
                 _ = sigint.recv() => {
-                    debug!("Received signal: SIGINT");
+                    info!("Received signal: SIGINT");
                     ctx.stop();
                     break;
                 }
 
                 _ = sighup.recv() => {
-                    debug!("Received signal: SIGHUP");
+                    info!("Server received signal: SIGHUP");
                     match ctx.config.reload() {
                         Ok(_) => ctx.reload(),
                         Err(e) => error!("Reload config error: {}", e)
