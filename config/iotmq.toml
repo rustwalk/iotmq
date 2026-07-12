@@ -13,15 +13,15 @@ addr = "[::]:8883"
 cert = "./config/iotmq.crt"
 key = "./config/iotmq.key"
 
-#[[listener]]
-#protocol = "ws"
-#addr = "0.0.0.0:8083"
-#
-#[[listener]]
-#protocol = "wss"
-#addr = "0.0.0.0:8084"
-#cert = "./config/iotmq.crt"
-#key = "./config/iotmq.key"
+[[listener]]
+protocol = "ws"
+addr = "0.0.0.0:8083"
+
+[[listener]]
+protocol = "wss"
+addr = "0.0.0.0:8084"
+cert = "./config/iotmq.crt"
+key = "./config/iotmq.key"
 
 ##------------------------------------------------
 ##   MQTT

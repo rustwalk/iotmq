@@ -1,5 +1,8 @@
 use crate::Context;
 use anyhow::{Context as _, Error, Result};
+use async_tungstenite::tokio::accept_hdr_async;
+use async_tungstenite::tungstenite::handshake::server::{ErrorResponse, Request, Response};
+use async_tungstenite::tungstenite::http::HeaderValue;
 use serde::Deserialize;
 use std::io::ErrorKind;
 use std::net::{IpAddr, Ipv6Addr, SocketAddr};
@@ -63,7 +66,7 @@ impl Listener {
     /// Tcp accept
     async fn accept<H, F>(&self, ctx: Context, handler: H) -> Result<()>
     where
-        H: Fn(TcpStream) -> F + Send + Sync + Clone + 'static,
+        H: Fn(TcpStream, SocketAddr) -> F + Send + Sync + Clone + 'static,
         F: Future<Output = Result<()>> + Send + 'static,
     {
         let listener = TcpListener::bind(self.addr).await?;
@@ -77,7 +80,7 @@ impl Listener {
                     connections.abort_all();
                     while connections.join_next().await.is_some() {}
                     return Ok(());
-                },
+                }
 
                 result = listener.accept() => {
                     match result {
@@ -86,7 +89,7 @@ impl Listener {
                             let handler = handler.clone();
                             let protocol = self.protocol;
                             connections.spawn(async move {
-                                (handler(stream).await, protocol, addr)
+                                (handler(stream, addr).await, protocol, addr)
                             });
                         }
 
@@ -94,10 +97,10 @@ impl Listener {
                             match e.kind() {
                                 ErrorKind::ConnectionAborted
                                 | ErrorKind::Interrupted  => {
-                                    debug!("MQTT Broker {} accept interrupted: {:#}", self.protocol, e);
+                                    debug!("MQTT Broker {} accept interrupted on {}: {:#}", self.protocol, self.addr, e);
                                     continue;
                                 }
-                                _ => return Err(e.into())
+                                _ => return Err(e).context(format!("{} accept failed on {}", self.protocol, self.addr)),
                             }
                         }
                     }
@@ -105,11 +108,11 @@ impl Listener {
 
                 result = connections.join_next(), if !connections.is_empty() => {
                     match result {
+                        Some(Ok((Ok(()), protocol, addr))) => {
+                            debug!("MQTT Broker {} connection from {} closed",protocol, addr);
+                        }
                         Some(Ok((Err(e), protocol, addr))) => {
-                            debug!(
-                                "MQTT Broker {} connection error from {}: {:#}",
-                                protocol, addr, e
-                            );
+                            debug!("MQTT Broker {} connection error from {}: {:#}",protocol, addr, e);
                         }
                         Some(Err(e)) if !e.is_cancelled() => {
                             debug!("MQTT Broker connection task failed: {}", e);
@@ -142,9 +145,13 @@ impl Listener {
 
     /// Tcp listen
     async fn tcp(&self, ctx: Context) -> Result<()> {
-        self.accept(ctx, |_stream| async move {
-            println!("tcp");
-            Ok(())
+        let move_ctx = ctx.clone();
+        self.accept(ctx, move |_stream, addr| {
+            let _ctx = move_ctx.clone();
+            async move {
+                println!("tcp:{}", addr);
+                Ok(())
+            }
         })
         .await
     }
@@ -152,12 +159,14 @@ impl Listener {
     /// TLS listen
     async fn tls(&self, ctx: Context) -> Result<()> {
         let acceptor = self.tls_acceptor()?;
+        let move_ctx = ctx.clone();
 
-        self.accept(ctx, move |stream| {
+        self.accept(ctx, move |stream, addr| {
             let acceptor = acceptor.clone();
+            let _ctx = move_ctx.clone();
             async move {
                 let _stream = acceptor.accept(stream).await?;
-                println!("tls");
+                println!("tls:{}", addr);
                 Ok(())
             }
         })
@@ -166,21 +175,52 @@ impl Listener {
 
     /// Websocket listen
     async fn ws(&self, ctx: Context) -> Result<()> {
-        self.accept(ctx, |stream| async move {
-            let _stream = stream;
-            Ok(())
+        let move_ctx = ctx.clone();
+
+        self.accept(ctx, move |stream, addr| {
+            let _ctx = move_ctx.clone();
+            async move {
+                let _stream = accept_hdr_async(stream, ws_callback).await?;
+                println!("ws:{}", addr);
+                Ok(())
+            }
         })
         .await
     }
 
     /// Websocket TLS listen
     async fn wss(&self, ctx: Context) -> Result<()> {
-        self.accept(ctx, |stream| async move {
-            let _stream = stream;
-            Ok(())
+        let acceptor = self.tls_acceptor()?;
+        let move_ctx = ctx.clone();
+
+        self.accept(ctx, move |stream, addr| {
+            let acceptor = acceptor.clone();
+            let _ctx = move_ctx.clone();
+            async move {
+                let stream = acceptor.accept(stream).await?;
+                let _stream = accept_hdr_async(stream, ws_callback).await?;
+                println!("wss:{}", addr);
+                Ok(())
+            }
         })
         .await
     }
+}
+
+/// WS callback
+fn ws_callback(request: &Request, mut response: Response) -> Result<Response, ErrorResponse> {
+    let protocol = request
+        .headers()
+        .get("Sec-WebSocket-Protocol")
+        .ok_or(ErrorResponse::new(Some("Sec-WebSocket-Protocol header missing".into())))?;
+
+    if protocol == "mqtt" {
+        response
+            .headers_mut()
+            .insert("sec-websocket-protocol", HeaderValue::from_static("protocol"));
+    }
+
+    Ok(response)
 }
 
 pub struct Broker;
