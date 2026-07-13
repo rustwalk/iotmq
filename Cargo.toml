@@ -26,7 +26,12 @@ tracing-appender = "0.2.5"
 once_cell = "1.21.4"
 clap = { version = "4.6.1", features = ["derive"] }
 tokio-rustls = "0.26.4"
-async-tungstenite = { version = "0.34.1", features = ["tokio-runtime"] }
+async-tungstenite = { version = "0.29.1", features = ["tokio-runtime"] }
+ws_stream_tungstenite = { version = "0.15.0", features = ["tokio_io"] }
+tokio-util = { version = "0.7.18", features = ["codec"] }
+futures = "0.3.32"
+num_enum = "0.7.6"
+thiserror = "2.0.18"
 
 [package.metadata.generate-rpm]
 assets = [

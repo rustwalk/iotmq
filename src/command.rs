@@ -1,4 +1,4 @@
-use crate::Server;
+use crate::server::Server;
 use clap::{Parser, Subcommand};
 use serde::{Deserialize, Serialize};
 use std::io::{BufRead, BufReader, Write};

@@ -1,3 +1,4 @@
+use super::Stream;
 use crate::Context;
 use anyhow::{Context as _, Error, Result};
 use async_tungstenite::tokio::accept_hdr_async;
@@ -14,6 +15,7 @@ use tokio_rustls::rustls::ServerConfig;
 use tokio_rustls::rustls::pki_types::pem::PemObject;
 use tokio_rustls::rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use tracing::{debug, info};
+use ws_stream_tungstenite::WsStream;
 
 #[derive(Debug, Deserialize, Clone, Copy)]
 #[serde(rename_all = "lowercase")]
@@ -35,6 +37,7 @@ impl std::fmt::Display for Protocol {
         f.write_str(protocol)
     }
 }
+
 #[derive(Debug, Deserialize, Clone)]
 pub struct Listener {
     pub protocol: Protocol,
@@ -146,11 +149,12 @@ impl Listener {
     /// Tcp listen
     async fn tcp(&self, ctx: Context) -> Result<()> {
         let move_ctx = ctx.clone();
-        self.accept(ctx, move |_stream, addr| {
-            let _ctx = move_ctx.clone();
+        self.accept(ctx, move |stream, addr| {
+            let ctx = move_ctx.clone();
             async move {
-                println!("tcp:{}", addr);
-                Ok(())
+                let stream = Box::new(stream);
+                let session = Stream::connect(ctx, stream, addr).await?;
+                session.run().await
             }
         })
         .await
@@ -163,11 +167,12 @@ impl Listener {
 
         self.accept(ctx, move |stream, addr| {
             let acceptor = acceptor.clone();
-            let _ctx = move_ctx.clone();
+            let ctx = move_ctx.clone();
             async move {
-                let _stream = acceptor.accept(stream).await?;
-                println!("tls:{}", addr);
-                Ok(())
+                let stream = acceptor.accept(stream).await?;
+                let stream = Box::new(stream);
+                let session = Stream::connect(ctx, stream, addr).await?;
+                session.run().await
             }
         })
         .await
@@ -178,11 +183,12 @@ impl Listener {
         let move_ctx = ctx.clone();
 
         self.accept(ctx, move |stream, addr| {
-            let _ctx = move_ctx.clone();
+            let ctx = move_ctx.clone();
             async move {
-                let _stream = accept_hdr_async(stream, ws_callback).await?;
-                println!("ws:{}", addr);
-                Ok(())
+                let stream = accept_hdr_async(stream, ws_callback).await?;
+                let stream = Box::new(WsStream::new(stream));
+                let session = Stream::connect(ctx, stream, addr).await?;
+                session.run().await
             }
         })
         .await
@@ -195,12 +201,13 @@ impl Listener {
 
         self.accept(ctx, move |stream, addr| {
             let acceptor = acceptor.clone();
-            let _ctx = move_ctx.clone();
+            let ctx = move_ctx.clone();
             async move {
                 let stream = acceptor.accept(stream).await?;
-                let _stream = accept_hdr_async(stream, ws_callback).await?;
-                println!("wss:{}", addr);
-                Ok(())
+                let stream = accept_hdr_async(stream, ws_callback).await?;
+                let stream = Box::new(WsStream::new(stream));
+                let session = Stream::connect(ctx, stream, addr).await?;
+                session.run().await
             }
         })
         .await
@@ -215,9 +222,7 @@ fn ws_callback(request: &Request, mut response: Response) -> Result<Response, Er
         .ok_or(ErrorResponse::new(Some("Sec-WebSocket-Protocol header missing".into())))?;
 
     if protocol == "mqtt" {
-        response
-            .headers_mut()
-            .insert("sec-websocket-protocol", HeaderValue::from_static("protocol"));
+        response.headers_mut().insert("sec-websocket-protocol", HeaderValue::from_static("mqtt"));
     }
 
     Ok(response)
