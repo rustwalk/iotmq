@@ -96,7 +96,11 @@ pub struct ConnectProperties {
 }
 
 impl ConnectProperties {
-    /// Decode Connect Packet
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Decode Connect Connect Properties
     pub fn decode(src: &mut Bytes) -> Result<Option<Self>, Error> {
         let mut properties = Self::default();
 
@@ -179,7 +183,7 @@ pub struct WillProperties {
 }
 
 impl WillProperties {
-    /// Decode Connect Packet
+    /// Decode Connect Will Properties
     pub fn decode(src: &mut Bytes) -> Result<Option<Self>, Error> {
         let mut properties = Self::default();
 
@@ -238,5 +242,136 @@ impl WillProperties {
                 _ => unreachable!(),
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn mqtt_string(dst: &mut Vec<u8>, value: &str) {
+        dst.extend_from_slice(&(value.len() as u16).to_be_bytes());
+        dst.extend_from_slice(value.as_bytes());
+    }
+
+    fn connect_header(dst: &mut Vec<u8>, version: u8, flags: u8, keepalive: u16) {
+        mqtt_string(dst, "MQTT");
+        dst.push(version);
+        dst.push(flags);
+        dst.extend_from_slice(&keepalive.to_be_bytes());
+    }
+
+    #[test]
+    fn decode_v311_with_username_and_password() {
+        let mut src = Vec::new();
+        connect_header(&mut src, Version::V311 as u8, 0xc2, 60);
+        mqtt_string(&mut src, "client-1");
+        mqtt_string(&mut src, "user");
+        mqtt_string(&mut src, "password");
+
+        let connect = Connect::decode(Bytes::from(src)).unwrap();
+
+        assert_eq!(connect.protocol_name, "MQTT");
+        assert_eq!(connect.protocol_version, Version::V311);
+        assert!(connect.clean_start);
+        assert!(connect.username_flag);
+        assert!(connect.password_flag);
+        assert!(!connect.will_flag);
+        assert_eq!(connect.keepalive, 60);
+        assert_eq!(connect.client_id, "client-1");
+        assert_eq!(connect.username.as_deref(), Some("user"));
+        assert_eq!(connect.password.as_deref(), Some("password"));
+        assert!(connect.properties.is_none());
+    }
+
+    #[test]
+    fn decode_v5_with_connect_and_will_properties() {
+        let mut src = Vec::new();
+        // Username, password, Will Retain, Will QoS 1, Will Flag, Clean Start.
+        connect_header(&mut src, Version::V5 as u8, 0xee, 30);
+
+        let mut properties = Vec::new();
+        properties.extend_from_slice(&[Property::SessionExpiryInterval as u8, 0, 0, 0, 10]);
+        properties.extend_from_slice(&[Property::ReceiveMaximum as u8, 0, 20]);
+        properties.push(Property::UserProperty as u8);
+        mqtt_string(&mut properties, "key");
+        mqtt_string(&mut properties, "value");
+        properties.push(Property::AuthMethod as u8);
+        mqtt_string(&mut properties, "token");
+        properties.extend_from_slice(&[Property::AuthData as u8, 0, 2, 0xaa, 0xbb]);
+        assert!(properties.len() < 128);
+        src.push(properties.len() as u8);
+        src.extend_from_slice(&properties);
+
+        mqtt_string(&mut src, "client-v5");
+
+        let mut will_properties = Vec::new();
+        will_properties.extend_from_slice(&[Property::PayloadFormatIndicator as u8, 1]);
+        will_properties.push(Property::ContentType as u8);
+        mqtt_string(&mut will_properties, "text/plain");
+        will_properties.push(Property::UserProperty as u8);
+        mqtt_string(&mut will_properties, "k");
+        mqtt_string(&mut will_properties, "v");
+        assert!(will_properties.len() < 128);
+        src.push(will_properties.len() as u8);
+        src.extend_from_slice(&will_properties);
+        mqtt_string(&mut src, "status/client-v5");
+        mqtt_string(&mut src, "offline");
+        mqtt_string(&mut src, "alice");
+        mqtt_string(&mut src, "secret");
+
+        let connect = Connect::decode(Bytes::from(src)).unwrap();
+
+        assert_eq!(connect.protocol_version, Version::V5);
+        assert!(connect.clean_start);
+        assert!(connect.will_flag);
+        assert!(connect.will_retain);
+        assert!(matches!(connect.will_qos, QoS::AtLeastOnce));
+        assert_eq!(connect.client_id, "client-v5");
+        assert_eq!(connect.will_topic, "status/client-v5");
+        assert_eq!(connect.will_payload, "offline");
+        assert_eq!(connect.username.as_deref(), Some("alice"));
+        assert_eq!(connect.password.as_deref(), Some("secret"));
+
+        let properties = connect.properties.unwrap();
+        assert_eq!(properties.session_expiry_interval, Some(10));
+        assert_eq!(properties.receive_max, Some(20));
+        assert_eq!(properties.user_property, vec![("key".into(), "value".into())]);
+        assert_eq!(properties.auth_method.as_deref(), Some("token"));
+        assert_eq!(properties.auth_data.as_deref(), Some(&[0xaa, 0xbb][..]));
+
+        let will_properties = connect.will_properties.unwrap();
+        assert_eq!(will_properties.payload_format_indicator, Some(1));
+        assert_eq!(will_properties.content_type.as_deref(), Some("text/plain"));
+        assert_eq!(will_properties.user_property, vec![("k".into(), "v".into())]);
+    }
+
+    #[test]
+    fn reject_invalid_protocol_name() {
+        let mut src = Vec::new();
+        mqtt_string(&mut src, "HTTP");
+        src.extend_from_slice(&[Version::V311 as u8, 0x02, 0x00, 0x3c]);
+        mqtt_string(&mut src, "client");
+
+        assert!(matches!(Connect::decode(Bytes::from(src)), Err(Error::ProtocolError(_))));
+    }
+
+    #[test]
+    fn reject_unsupported_protocol_version() {
+        let mut src = Vec::new();
+        connect_header(&mut src, 6, 0x02, 60);
+        mqtt_string(&mut src, "client");
+
+        assert!(matches!(
+            Connect::decode(Bytes::from(src)),
+            Err(Error::UnsupportedProtocolVersion(6))
+        ));
+    }
+
+    #[test]
+    fn reject_truncated_protocol_name() {
+        let src = Bytes::from_static(&[0x00, 0x04, b'M', b'Q']);
+
+        assert!(matches!(Connect::decode(src), Err(Error::MalformedPacket)));
     }
 }

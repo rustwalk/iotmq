@@ -7,7 +7,7 @@ use tokio_util::bytes::{Buf, BufMut, Bytes, BytesMut};
 #[derive(Debug)]
 pub enum Packet {
     Connect(Connect),
-    //ConnAck(ConnAck),
+    ConnAck(ConnAck),
     // Publish(Publish),
     // PubAck(PubAck),
     // PubRec(PubRec),
@@ -36,6 +36,8 @@ pub enum Error {
     UnsupportedProtocolVersion(u8),
     #[error("Packet too large")]
     PacketTooLarge,
+    #[error("MQTT connection closed by peer")]
+    ConnectionClosed,
 }
 
 /// MQTT QoS
@@ -54,7 +56,7 @@ impl Default for QoS {
 }
 
 /// MQTT Version
-#[derive(Debug, TryFromPrimitive, PartialEq)]
+#[derive(Debug, TryFromPrimitive, PartialEq, Clone, Copy)]
 #[repr(u8)]
 pub enum Version {
     V31 = 3,
@@ -63,7 +65,7 @@ pub enum Version {
 }
 
 impl Version {
-    fn as_str(&self) -> &'static str {
+    fn as_str(self) -> &'static str {
         match self {
             Self::V31 => "3.1",
             Self::V311 => "3.1.1",
@@ -101,7 +103,7 @@ pub enum PacketType {
 }
 
 /// MQTT Reason Code
-#[derive(Debug, TryFromPrimitive)]
+#[derive(Debug, TryFromPrimitive, Clone, Copy)]
 #[repr(u8)]
 pub enum ReasonCode {
     Success = 0x00,
@@ -152,6 +154,20 @@ pub enum ReasonCode {
 impl Default for ReasonCode {
     fn default() -> Self {
         Self::Success
+    }
+}
+
+impl ReasonCode {
+    pub fn to_v3(self) -> Result<u8, Error> {
+        match self {
+            ReasonCode::Success => Ok(0x00),
+            ReasonCode::UnsupportedProtocolVersion => Ok(0x01),
+            ReasonCode::ClientIdentifierNotValid => Ok(0x02),
+            ReasonCode::ServerUnavailable => Ok(0x03),
+            ReasonCode::BadUserNameOrPassword => Ok(0x04),
+            ReasonCode::NotAuthorized => Ok(0x05),
+            _ => Err(Error::ProtocolError("Unknown v3 reason code".into())),
+        }
     }
 }
 
@@ -223,7 +239,17 @@ pub fn encode_length(dst: &mut BytesMut, mut length: usize) -> Result<(), Error>
     Ok(())
 }
 
-// Decode string
+/// Length bytes number
+pub fn length_bytes(mut length: usize) -> usize {
+    let mut length_bytes = 1;
+    while length >= 128 {
+        length >>= 7;
+        length_bytes += 1;
+    }
+    length_bytes
+}
+
+/// Decode string
 pub fn decode_string(src: &mut Bytes) -> Result<String, Error> {
     if src.len() < 2 {
         return Err(Error::MalformedPacket);
@@ -240,7 +266,7 @@ pub fn decode_string(src: &mut Bytes) -> Result<String, Error> {
     Ok(string)
 }
 
-// Encode string
+/// Encode string
 pub fn encode_string(dst: &mut BytesMut, string: &str) -> Result<(), Error> {
     let length = string.len();
 
@@ -259,24 +285,24 @@ mod tests {
 
     #[test]
     fn test_encode_len() {
-        let mut buf = BytesMut::new();
-        assert!(matches!(encode_length(&mut buf, 268_435_456), Err(Error::PacketTooLarge)));
+        let mut dst = BytesMut::new();
+        assert!(matches!(encode_length(&mut dst, 268_435_456), Err(Error::PacketTooLarge)));
 
-        let mut buf = BytesMut::new();
-        assert!(encode_length(&mut buf, 127).is_ok());
-        assert_eq!(buf[..], [0x7F]);
+        let mut dst = BytesMut::new();
+        assert!(encode_length(&mut dst, 127).is_ok());
+        assert_eq!(dst[..], [0x7F]);
 
-        let mut buf = BytesMut::new();
-        assert!(encode_length(&mut buf, 16_383).is_ok());
-        assert_eq!(buf[..], [0xFF, 0x7F]);
+        let mut dst = BytesMut::new();
+        assert!(encode_length(&mut dst, 16_383).is_ok());
+        assert_eq!(dst[..], [0xFF, 0x7F]);
 
-        let mut buf = BytesMut::new();
-        assert!(encode_length(&mut buf, 2_097_151).is_ok());
-        assert_eq!(buf[..], [0xFF, 0xFF, 0x7F]);
+        let mut dst = BytesMut::new();
+        assert!(encode_length(&mut dst, 2_097_151).is_ok());
+        assert_eq!(dst[..], [0xFF, 0xFF, 0x7F]);
 
-        let mut buf = BytesMut::new();
-        assert!(encode_length(&mut buf, 268_435_455).is_ok());
-        assert_eq!(buf[..], [0xFF, 0xFF, 0xFF, 0x7F]);
+        let mut dst = BytesMut::new();
+        assert!(encode_length(&mut dst, 268_435_455).is_ok());
+        assert_eq!(dst[..], [0xFF, 0xFF, 0xFF, 0x7F]);
     }
 
     #[test]
