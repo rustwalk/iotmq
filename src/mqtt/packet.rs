@@ -17,9 +17,9 @@ pub enum Packet {
     // SubAck(SubAck),
     // Unsubscribe(Unsubscribe),
     // UnsubAck(UnsubAck),
-    // PingReq,
-    // PingResp,
-    // Disconnect(Disconnect),
+    PingReq,
+    PingResp,
+    Disconnect(Disconnect),
     // Auth(Auth)
 }
 
@@ -28,16 +28,33 @@ pub enum Packet {
 pub enum Error {
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
+
     #[error("Malformed Packet")]
     MalformedPacket,
+
     #[error("Protocol error: {0}")]
     ProtocolError(String),
+
     #[error("Unsupported protocol version: {0}")]
     UnsupportedProtocolVersion(u8),
+
     #[error("Packet too large")]
     PacketTooLarge,
+
     #[error("MQTT connection closed by peer")]
     ConnectionClosed,
+
+    #[error("Client identifier not valid")]
+    ClientIdentifierNotValid,
+
+    #[error("Bad username or password")]
+    BadUserNameOrPassword,
+
+    #[error("Not authorized")]
+    NotAuthorized,
+
+    #[error("Server unavailable")]
+    ServerUnavailable,
 }
 
 /// MQTT QoS
@@ -167,6 +184,22 @@ impl ReasonCode {
             ReasonCode::BadUserNameOrPassword => Ok(0x04),
             ReasonCode::NotAuthorized => Ok(0x05),
             _ => Err(Error::ProtocolError("Unknown v3 reason code".into())),
+        }
+    }
+}
+
+impl From<&Error> for ReasonCode {
+    fn from(e: &Error) -> Self {
+        match e {
+            Error::MalformedPacket => Self::MalformedPacket,
+            Error::ProtocolError(_) => Self::ProtocolError,
+            Error::UnsupportedProtocolVersion(_) => Self::UnsupportedProtocolVersion,
+            Error::PacketTooLarge => ReasonCode::PacketTooLarge,
+            Error::ClientIdentifierNotValid => ReasonCode::ClientIdentifierNotValid,
+            Error::BadUserNameOrPassword => ReasonCode::BadUserNameOrPassword,
+            Error::NotAuthorized => ReasonCode::NotAuthorized,
+            Error::ServerUnavailable => ReasonCode::ServerUnavailable,
+            _ => ReasonCode::UnspecifiedError,
         }
     }
 }

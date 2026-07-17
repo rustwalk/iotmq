@@ -96,19 +96,11 @@ pub struct ConnectProperties {
 }
 
 impl ConnectProperties {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
     /// Decode Connect Connect Properties
     pub fn decode(src: &mut Bytes) -> Result<Option<Self>, Error> {
         let mut properties = Self::default();
 
-        let bytes = src.as_ref();
-        let (length, length_bytes) = match decode_length(bytes)? {
-            Some(length) => length,
-            None => return Err(Error::MalformedPacket),
-        };
+        let (length, length_bytes) = decode_length(src.as_ref())?.ok_or(Error::MalformedPacket)?;
         src.advance(length_bytes);
 
         if length == 0 {
@@ -187,12 +179,8 @@ impl WillProperties {
     pub fn decode(src: &mut Bytes) -> Result<Option<Self>, Error> {
         let mut properties = Self::default();
 
-        let bytes = src.as_ref();
-        let (length, length_len) = match decode_length(bytes)? {
-            Some(len) => len,
-            None => return Err(Error::MalformedPacket),
-        };
-        src.advance(length_len);
+        let (length, length_bytes) = decode_length(src.as_ref())?.ok_or(Error::MalformedPacket)?;
+        src.advance(length_bytes);
 
         if length == 0 {
             return Ok(None);

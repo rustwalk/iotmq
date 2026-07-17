@@ -36,6 +36,9 @@ impl Decoder for Codec {
         let packet_type = PacketType::try_from(packet_type).map_err(|_| Error::MalformedPacket)?;
         let packet = match packet_type {
             PacketType::Connect => Packet::Connect(Connect::decode(bytes)?),
+            PacketType::Disconnect => Packet::Disconnect(Disconnect::decode(bytes)?),
+            PacketType::PingReq => Packet::PingReq,
+            PacketType::PingResp => Packet::PingResp,
             _ => return Err(Error::ProtocolError("Packet Decoder is not implemented".into())),
         };
 
@@ -49,6 +52,9 @@ impl Encoder<Packet> for Codec {
     fn encode(&mut self, item: Packet, dst: &mut BytesMut) -> Result<(), Self::Error> {
         match item {
             Packet::ConnAck(connack) => connack.encode(dst)?,
+            //Packet::Disconnect(disconnect) => disconnect.encode(dst)?,
+            Packet::PingReq => PingReq::encode(dst),
+            Packet::PingResp => PingResp::encode(dst),
             _ => return Err(Error::ProtocolError("Packet Encoder is not implemented".into())),
         }
         Ok(())

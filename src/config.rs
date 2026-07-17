@@ -18,6 +18,7 @@ const CONFIG_DIR: &str = "./config";
 pub struct Config {
     pub log: LogConfig,
     pub web: WebConfig,
+    pub mqtt: MqttConfig,
     #[serde(rename = "listener", default = "Config::default_listeners")]
     pub listeners: Vec<Listener>,
 }
@@ -31,6 +32,25 @@ impl Config {
     // Default listeners
     fn default_listeners() -> Vec<Listener> {
         vec![Listener::default()]
+    }
+}
+
+#[derive(Deserialize, Debug)]
+pub struct MqttConfig {
+    pub max_client_id_len: usize,
+    pub max_packet_size: u32,
+    pub max_topic_alias: u16,
+    pub max_receive: u16,
+    pub max_qos: u8,
+    pub max_inflight: usize,
+    pub max_queue_len: usize,
+    pub session_expiry_interval: u32,
+    pub retain_available: bool,
+}
+
+impl MqttConfig {
+    pub fn max_packet_size(&self) -> u32 {
+        if self.max_packet_size == 0 { 268_435_455 + 5 } else { self.max_packet_size }
     }
 }
 
