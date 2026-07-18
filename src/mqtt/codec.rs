@@ -1,4 +1,5 @@
 use super::*;
+use crate::mqtt::publish::Publish;
 use anyhow::Result;
 use tokio_util::bytes::{Buf, BytesMut};
 use tokio_util::codec::{Decoder, Encoder};
@@ -20,6 +21,7 @@ impl Decoder for Codec {
         // Decode remaining length
         let bytes = src.as_ref();
         let packet_type = bytes[0] >> 4;
+        let flags = bytes[0] & 0x0F;
         let (bytes, length) = match decode_length(&bytes[1..])? {
             Some((length, bytes)) => {
                 let packet_length = 1 + bytes + length;
@@ -38,8 +40,13 @@ impl Decoder for Codec {
         let packet_type = PacketType::try_from(packet_type).map_err(|_| Error::MalformedPacket)?;
         let version = self.0;
         let packet = match packet_type {
-            PacketType::Connect => Packet::Connect(Connect::decode(bytes)?),
+            PacketType::Connect => {
+                let connect = Connect::decode(bytes)?;
+                self.0 = connect.protocol_version;
+                Packet::Connect(connect)
+            }
             PacketType::Disconnect => Packet::Disconnect(Disconnect::decode(version, bytes)?),
+            PacketType::Publish => Packet::Publish(Publish::decode(version, bytes, flags)?),
             PacketType::PingReq => Packet::PingReq,
             PacketType::PingResp => Packet::PingResp,
             _ => {
@@ -62,17 +69,11 @@ impl Encoder<Packet> for Codec {
         match item {
             Packet::ConnAck(connack) => connack.encode(version, dst)?,
             //Packet::Disconnect(disconnect) => disconnect.encode(dst)?,
+            Packet::Publish(publish) => publish.encode(version, dst)?,
             Packet::PingReq => PingReq::encode(dst),
             Packet::PingResp => PingResp::encode(dst),
             _ => return Err(Error::ProtocolError("Packet Encoder is not implemented".into())),
         }
         Ok(())
-    }
-}
-
-/// Codec Version
-impl Codec {
-    pub fn version(&mut self, version: Version) {
-        self.0 = version;
     }
 }

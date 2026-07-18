@@ -33,6 +33,7 @@ futures = "0.3.32"
 num_enum = "0.7.6"
 thiserror = "2.0.18"
 uuid = { version = "1.24.0", features = ["v4"] }
+bytes = "1.12.0"
 
 [package.metadata.generate-rpm]
 assets = [

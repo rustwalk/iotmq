@@ -30,9 +30,6 @@ impl Stream {
             _ => return Err(Error::ProtocolError("First packet must be CONNECT".into()).into()),
         };
 
-        // Set codec version
-        stream.framed.codec_mut().version(connect.protocol_version);
-
         let max_packet_size = ctx.config().mqtt.max_packet_size();
         if packet_size > max_packet_size {
             let error = Error::PacketTooLarge;

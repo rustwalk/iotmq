@@ -8,7 +8,7 @@ use tokio_util::bytes::{Buf, BufMut, Bytes, BytesMut};
 pub enum Packet {
     Connect(Connect),
     ConnAck(ConnAck),
-    // Publish(Publish),
+    Publish(Publish),
     // PubAck(PubAck),
     // PubRec(PubRec),
     // PubRel(PubRel),
@@ -59,7 +59,7 @@ pub enum Error {
 
 /// MQTT QoS
 #[repr(u8)]
-#[derive(Debug, TryFromPrimitive)]
+#[derive(Debug, TryFromPrimitive, Clone, PartialEq, PartialOrd, Copy)]
 pub enum QoS {
     AtMostOnce = 0,
     AtLeastOnce,

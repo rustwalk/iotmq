@@ -1,4 +1,5 @@
 mod broker;
+mod client;
 mod session;
 mod stream;
 
