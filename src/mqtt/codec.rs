@@ -3,8 +3,10 @@ use anyhow::Result;
 use tokio_util::bytes::{Buf, BytesMut};
 use tokio_util::codec::{Decoder, Encoder};
 
-pub struct Codec;
+#[derive(Default)]
+pub struct Codec(Version);
 
+/// Codec Decode
 impl Decoder for Codec {
     type Item = (Packet, u32);
     type Error = Error;
@@ -34,29 +36,43 @@ impl Decoder for Codec {
 
         // Decode packet
         let packet_type = PacketType::try_from(packet_type).map_err(|_| Error::MalformedPacket)?;
+        let version = self.0;
         let packet = match packet_type {
             PacketType::Connect => Packet::Connect(Connect::decode(bytes)?),
-            PacketType::Disconnect => Packet::Disconnect(Disconnect::decode(bytes)?),
+            PacketType::Disconnect => Packet::Disconnect(Disconnect::decode(version, bytes)?),
             PacketType::PingReq => Packet::PingReq,
             PacketType::PingResp => Packet::PingResp,
-            _ => return Err(Error::ProtocolError("Packet Decoder is not implemented".into())),
+            _ => {
+                return Err(Error::ProtocolError(format!(
+                    "Packet {packet_type:?} Decoder is not implemented"
+                )));
+            }
         };
 
         Ok(Some((packet, length)))
     }
 }
 
+/// Codec Encode
 impl Encoder<Packet> for Codec {
     type Error = Error;
 
     fn encode(&mut self, item: Packet, dst: &mut BytesMut) -> Result<(), Self::Error> {
+        let version = self.0;
         match item {
-            Packet::ConnAck(connack) => connack.encode(dst)?,
+            Packet::ConnAck(connack) => connack.encode(version, dst)?,
             //Packet::Disconnect(disconnect) => disconnect.encode(dst)?,
             Packet::PingReq => PingReq::encode(dst),
             Packet::PingResp => PingResp::encode(dst),
             _ => return Err(Error::ProtocolError("Packet Encoder is not implemented".into())),
         }
         Ok(())
+    }
+}
+
+/// Codec Version
+impl Codec {
+    pub fn version(&mut self, version: Version) {
+        self.0 = version;
     }
 }

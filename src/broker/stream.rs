@@ -22,13 +22,16 @@ pub struct Stream {
 impl Stream {
     /// MQTT connect
     pub async fn connect(ctx: Context, io: Box<dyn IO>, addr: SocketAddr) -> Result<Session> {
-        let mut stream = Self { framed: Framed::new(io, Codec {}), addr };
+        let mut stream = Self { framed: Framed::new(io, Codec::default()), addr };
 
         let (packet, packet_size) = timeout(Duration::from_secs(10), stream.recv()).await??;
         let mut connect = match packet {
             Packet::Connect(connect) => connect,
             _ => return Err(Error::ProtocolError("First packet must be CONNECT".into()).into()),
         };
+
+        // Set codec version
+        stream.framed.codec_mut().version(connect.protocol_version);
 
         let max_packet_size = ctx.config().mqtt.max_packet_size();
         if packet_size > max_packet_size {
@@ -70,7 +73,6 @@ impl Stream {
     /// Send ConnAck
     pub async fn send_error(&mut self, version: Version, e: &Error) -> Result<(), Error> {
         let mut connack = ConnAck::default();
-        connack.version = version;
         connack.reason_code = e.into();
         self.send(Packet::ConnAck(connack)).await
     }
@@ -82,13 +84,15 @@ impl Stream {
         properties: Option<ConnAckProperties>,
     ) -> Result<(), Error> {
         let mut connack = ConnAck::default();
-        connack.version = version;
         connack.properties = properties;
         self.send(Packet::ConnAck(connack)).await
     }
 }
 
 fn resolve_client_id(connect: &mut Connect) -> Result<bool, Error> {
-    connect.client_id = uuid::Uuid::new_v4().simple().to_string();
-    Ok(true)
+    if connect.client_id.is_empty() {
+        connect.client_id = uuid::Uuid::new_v4().simple().to_string();
+        return Ok(true);
+    }
+    Ok(false)
 }

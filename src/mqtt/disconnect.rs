@@ -1,6 +1,6 @@
 use super::*;
 use anyhow::Result;
-use tokio_util::bytes::{Buf, Bytes};
+use tokio_util::bytes::{Buf, BufMut, Bytes, BytesMut};
 
 /// DISCONNECT Packet
 #[derive(Debug, Default)]
@@ -11,11 +11,15 @@ pub struct Disconnect {
 
 impl Disconnect {
     /// Decode Disconnect Packet
-    pub fn decode(mut src: Bytes) -> Result<Self, Error> {
+    pub fn decode(version: Version, mut src: Bytes) -> Result<Self, Error> {
         let mut disconnect = Self::default();
-        disconnect.reason_code =
-            ReasonCode::try_from(src.get_u8()).map_err(|_| Error::MalformedPacket)?;
-        disconnect.properties = DisconnectProperties::decode(&mut src)?;
+
+        if version == Version::V5 && src.has_remaining() {
+            disconnect.reason_code =
+                ReasonCode::try_from(src.get_u8()).map_err(|_| Error::MalformedPacket)?;
+            disconnect.properties = DisconnectProperties::decode(&mut src)?;
+        }
+
         Ok(disconnect)
     }
 }
@@ -41,6 +45,9 @@ impl DisconnectProperties {
             return Ok(None);
         }
 
+        if src.len() < length {
+            return Err(Error::MalformedPacket);
+        }
         let mut src = src.split_to(length);
 
         loop {
@@ -78,5 +85,54 @@ impl DisconnectProperties {
                 }
             }
         }
+    }
+
+    /// Encode Disconnect Properties
+    pub fn encode(self, dst: &mut BytesMut) -> Result<(), Error> {
+        if let Some(session_expiry_interval) = self.session_expiry_interval {
+            dst.put_u8(Property::SessionExpiryInterval as u8);
+            dst.put_u32(session_expiry_interval);
+        }
+
+        if let Some(server_reference) = self.server_reference {
+            dst.put_u8(Property::ServerReference as u8);
+            encode_string(dst, &server_reference)?;
+        }
+
+        if let Some(reason_string) = self.reason_string {
+            dst.put_u8(Property::ReasonString as u8);
+            encode_string(dst, &reason_string)?;
+        }
+
+        for (k, v) in self.user_property.iter() {
+            dst.put_u8(Property::UserProperty as u8);
+            encode_string(dst, k)?;
+            encode_string(dst, v)?;
+        }
+
+        Ok(())
+    }
+
+    /// Disconnect Properties Length
+    pub fn len(&self) -> usize {
+        let mut len = 0;
+
+        if self.session_expiry_interval.is_some() {
+            len += 1 + 4;
+        }
+
+        if let Some(ref server_reference) = self.server_reference {
+            len += 1 + 2 + server_reference.len();
+        }
+
+        if let Some(ref reason_string) = self.reason_string {
+            len += 1 + 2 + reason_string.len();
+        }
+
+        for (k, v) in self.user_property.iter() {
+            len += 1 + 2 + k.len() + 2 + v.len();
+        }
+
+        len
     }
 }

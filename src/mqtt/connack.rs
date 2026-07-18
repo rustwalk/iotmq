@@ -5,7 +5,6 @@ use tokio_util::bytes::{BufMut, BytesMut};
 /// ConnAck Packet
 #[derive(Debug, Default)]
 pub struct ConnAck {
-    pub version: Version,
     pub session_present: bool,
     pub reason_code: ReasonCode,
     pub properties: Option<ConnAckProperties>,
@@ -13,10 +12,10 @@ pub struct ConnAck {
 
 impl ConnAck {
     /// Encode ConnAck Packet
-    pub fn encode(self, dst: &mut BytesMut) -> Result<(), Error> {
+    pub fn encode(self, version: Version, dst: &mut BytesMut) -> Result<(), Error> {
         dst.put_u8((PacketType::ConnAck as u8) << 4);
 
-        match self.version {
+        match version {
             Version::V5 => {
                 let property_length = self.properties.as_ref().map_or(0, ConnAckProperties::len);
                 let length = 2 + length_bytes(property_length) + property_length;
@@ -154,6 +153,7 @@ impl ConnAckProperties {
         Ok(())
     }
 
+    /// ConnAck Properties Length
     pub fn len(&self) -> usize {
         let mut len = 0;
 
@@ -233,20 +233,18 @@ impl ConnAckProperties {
 mod tests {
     use super::*;
 
-    fn encode(connack: ConnAck) -> Result<BytesMut, Error> {
+    fn encode(version: Version, connack: ConnAck) -> Result<BytesMut, Error> {
         let mut dst = BytesMut::new();
-        connack.encode(&mut dst)?;
+        connack.encode(version, &mut dst)?;
         Ok(dst)
     }
 
     #[test]
     fn encode_v31_success() {
-        let dst = encode(ConnAck {
-            version: Version::V31,
-            session_present: false,
-            reason_code: ReasonCode::Success,
-            properties: None,
-        })
+        let dst = encode(
+            Version::V31,
+            ConnAck { session_present: false, reason_code: ReasonCode::Success, properties: None },
+        )
         .unwrap();
 
         assert_eq!(&dst[..], &[0x20, 0x02, 0x00, 0x00]);
@@ -254,12 +252,14 @@ mod tests {
 
     #[test]
     fn encode_v311_failure_reason_code() {
-        let dst = encode(ConnAck {
-            version: Version::V311,
-            session_present: false,
-            reason_code: ReasonCode::NotAuthorized,
-            properties: None,
-        })
+        let dst = encode(
+            Version::V311,
+            ConnAck {
+                session_present: false,
+                reason_code: ReasonCode::NotAuthorized,
+                properties: None,
+            },
+        )
         .unwrap();
 
         assert_eq!(&dst[..], &[0x20, 0x02, 0x00, 0x05]);
@@ -267,15 +267,17 @@ mod tests {
 
     #[test]
     fn encode_v3_does_not_include_v5_properties() {
-        let dst = encode(ConnAck {
-            version: Version::V311,
-            session_present: true,
-            reason_code: ReasonCode::Success,
-            properties: Some(ConnAckProperties {
-                server_keep_alive: Some(30),
-                ..Default::default()
-            }),
-        })
+        let dst = encode(
+            Version::V311,
+            ConnAck {
+                session_present: true,
+                reason_code: ReasonCode::Success,
+                properties: Some(ConnAckProperties {
+                    server_keep_alive: Some(30),
+                    ..Default::default()
+                }),
+            },
+        )
         .unwrap();
 
         assert_eq!(&dst[..], &[0x20, 0x02, 0x01, 0x00]);
@@ -283,24 +285,24 @@ mod tests {
 
     #[test]
     fn encode_v3_rejects_unrepresentable_reason_code() {
-        let result = encode(ConnAck {
-            version: Version::V311,
-            session_present: false,
-            reason_code: ReasonCode::ServerBusy,
-            properties: None,
-        });
+        let result = encode(
+            Version::V311,
+            ConnAck {
+                session_present: false,
+                reason_code: ReasonCode::ServerBusy,
+                properties: None,
+            },
+        );
 
         assert!(matches!(result, Err(Error::ProtocolError(_))));
     }
 
     #[test]
     fn encode_v5_without_properties() {
-        let dst = encode(ConnAck {
-            version: Version::V5,
-            session_present: false,
-            reason_code: ReasonCode::Success,
-            properties: None,
-        })
+        let dst = encode(
+            Version::V5,
+            ConnAck { session_present: false, reason_code: ReasonCode::Success, properties: None },
+        )
         .unwrap();
 
         assert_eq!(&dst[..], &[0x20, 0x03, 0x00, 0x00, 0x00]);
@@ -308,17 +310,19 @@ mod tests {
 
     #[test]
     fn encode_v5_with_properties() {
-        let dst = encode(ConnAck {
-            version: Version::V5,
-            session_present: true,
-            reason_code: ReasonCode::Success,
-            properties: Some(ConnAckProperties {
-                server_keep_alive: Some(30),
-                assigned_client_identifier: Some("client-1".into()),
-                user_property: vec![("key".into(), "value".into())],
-                ..Default::default()
-            }),
-        })
+        let dst = encode(
+            Version::V5,
+            ConnAck {
+                session_present: true,
+                reason_code: ReasonCode::Success,
+                properties: Some(ConnAckProperties {
+                    server_keep_alive: Some(30),
+                    assigned_client_identifier: Some("client-1".into()),
+                    user_property: vec![("key".into(), "value".into())],
+                    ..Default::default()
+                }),
+            },
+        )
         .unwrap();
 
         assert_eq!(dst[0], 0x20);

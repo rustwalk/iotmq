@@ -107,6 +107,9 @@ impl ConnectProperties {
             return Ok(None);
         }
 
+        if src.len() < length {
+            return Err(Error::MalformedPacket);
+        }
         let mut src = src.split_to(length);
 
         loop {
@@ -118,26 +121,44 @@ impl ConnectProperties {
             let property = Property::try_from(id).map_err(|_| Error::MalformedPacket)?;
             match property {
                 Property::SessionExpiryInterval => {
+                    if src.remaining() < 4 {
+                        return Err(Error::MalformedPacket);
+                    }
                     properties.session_expiry_interval = Some(src.get_u32());
                 }
 
                 Property::ReceiveMaximum => {
+                    if src.remaining() < 2 {
+                        return Err(Error::MalformedPacket);
+                    }
                     properties.receive_max = Some(src.get_u16());
                 }
 
                 Property::MaxPacketSize => {
+                    if src.remaining() < 4 {
+                        return Err(Error::MalformedPacket);
+                    }
                     properties.max_packet_size = Some(src.get_u32());
                 }
 
                 Property::TopicAliasMaximum => {
+                    if src.remaining() < 2 {
+                        return Err(Error::MalformedPacket);
+                    }
                     properties.topic_alias_max = Some(src.get_u16());
                 }
 
                 Property::RequestResponseInfo => {
+                    if src.remaining() < 1 {
+                        return Err(Error::MalformedPacket);
+                    }
                     properties.request_response_info = Some(src.get_u8());
                 }
 
                 Property::RequestProblemInfo => {
+                    if src.remaining() < 1 {
+                        return Err(Error::MalformedPacket);
+                    }
                     properties.request_problem_info = Some(src.get_u8());
                 }
 
@@ -152,11 +173,18 @@ impl ConnectProperties {
                 }
 
                 Property::AuthData => {
+                    if src.remaining() < 2 {
+                        return Err(Error::MalformedPacket);
+                    }
                     let length = src.get_u16() as usize;
                     let src = src.split_to(length);
                     properties.auth_data = Some(src.to_vec());
                 }
-                _ => unreachable!(),
+                property => {
+                    return Err(Error::ProtocolError(format!(
+                        "{property:?} is not allowed in DISCONNECT"
+                    )));
+                }
             }
         }
     }
@@ -186,6 +214,9 @@ impl WillProperties {
             return Ok(None);
         }
 
+        if src.len() < length {
+            return Err(Error::MalformedPacket);
+        }
         let mut src = src.split_to(length);
 
         loop {

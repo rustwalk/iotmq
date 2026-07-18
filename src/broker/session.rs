@@ -1,6 +1,6 @@
 use super::Stream;
 use crate::Context;
-use crate::mqtt::{Connect, Error, Packet};
+use crate::mqtt::{Connect, Disconnect, Error, Packet};
 use anyhow::Result;
 use std::time::Duration;
 use tokio::time::{Instant, sleep_until};
@@ -57,7 +57,9 @@ impl Session {
                     }
 
                     // Packet handle
-                    self.handle_packet(packet).await?;
+                    if self.handle_packet(packet).await? {
+                        return Ok(());
+                    }
                 }
 
                 // Keepalive timeout
@@ -74,14 +76,8 @@ impl Session {
         (keepalive > 0).then(|| Duration::from_millis(keepalive))
     }
 
-    /// Clean up when the broker is stopping or restarting.
+    /// Server shutdown
     async fn server_shutdown(&mut self) -> Result<()> {
-        Ok(())
-    }
-
-    ///
-    #[allow(dead_code)]
-    async fn client_disconnect(&mut self) -> Result<()> {
         Ok(())
     }
 
@@ -108,21 +104,26 @@ impl Session {
         Ok(())
     }
 
-    ///
-    #[allow(dead_code)]
-    async fn session_taken_over(&mut self) -> Result<()> {
-        Ok(())
-    }
-
-    /// Handel Packet
-    async fn handle_packet(&mut self, packet: Packet) -> Result<(), Error> {
+    /// Handle Packet
+    async fn handle_packet(&mut self, packet: Packet) -> Result<bool, Error> {
         println!("{:?}", packet);
         match packet {
-            Packet::PingReq => self.stream.send(Packet::PingResp).await,
+            Packet::PingReq => self.stream.send(Packet::PingResp).await?,
             Packet::Connect(_) => {
-                Err(Error::ProtocolError("CONNECT packet received more than once".into()))
+                return Err(Error::ProtocolError("CONNECT packet received more than once".into()));
             }
-            _ => Ok(()),
+            Packet::Disconnect(disconnect) => {
+                self.handle_disconnect(disconnect).await?;
+                return Ok(true);
+            }
+            _ => {}
         }
+
+        Ok(false)
+    }
+
+    /// Handle Disconnect
+    async fn handle_disconnect(&mut self, disconnect: Disconnect) -> Result<(), Error> {
+        Ok(())
     }
 }
