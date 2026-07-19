@@ -1,4 +1,4 @@
-use super::Stream;
+use super::Session;
 use crate::Context;
 use anyhow::{Context as _, Error, Result};
 use async_tungstenite::tokio::accept_hdr_async;
@@ -153,7 +153,7 @@ impl Listener {
             let ctx = move_ctx.clone();
             async move {
                 let stream = Box::new(stream);
-                let session = Stream::connect(ctx, stream, addr).await?;
+                let session = Session::connect(ctx, stream, addr).await?;
                 session.run().await
             }
         })
@@ -171,7 +171,7 @@ impl Listener {
             async move {
                 let stream = acceptor.accept(stream).await?;
                 let stream = Box::new(stream);
-                let session = Stream::connect(ctx, stream, addr).await?;
+                let session = Session::connect(ctx, stream, addr).await?;
                 session.run().await
             }
         })
@@ -187,7 +187,7 @@ impl Listener {
             async move {
                 let stream = accept_hdr_async(stream, ws_callback).await?;
                 let stream = Box::new(WsStream::new(stream));
-                let session = Stream::connect(ctx, stream, addr).await?;
+                let session = Session::connect(ctx, stream, addr).await?;
                 session.run().await
             }
         })
@@ -206,7 +206,7 @@ impl Listener {
                 let stream = acceptor.accept(stream).await?;
                 let stream = accept_hdr_async(stream, ws_callback).await?;
                 let stream = Box::new(WsStream::new(stream));
-                let session = Stream::connect(ctx, stream, addr).await?;
+                let session = Session::connect(ctx, stream, addr).await?;
                 session.run().await
             }
         })

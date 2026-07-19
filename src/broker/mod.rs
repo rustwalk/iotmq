@@ -1,8 +1,7 @@
 mod broker;
 mod client;
 mod session;
-mod stream;
 
 pub use broker::*;
+pub use client::*;
 pub use session::*;
-pub use stream::*;

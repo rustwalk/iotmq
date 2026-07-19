@@ -81,6 +81,7 @@ pub enum Version {
     V5,
 }
 
+#[allow(unused)]
 impl Version {
     fn as_str(self) -> &'static str {
         match self {

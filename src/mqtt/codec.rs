@@ -22,7 +22,7 @@ impl Decoder for Codec {
         let bytes = src.as_ref();
         let packet_type = bytes[0] >> 4;
         let flags = bytes[0] & 0x0F;
-        let (bytes, length) = match decode_length(&bytes[1..])? {
+        let (bytes, packet_length) = match decode_length(&bytes[1..])? {
             Some((length, bytes)) => {
                 let packet_length = 1 + bytes + length;
                 if src.len() < packet_length {
@@ -56,7 +56,7 @@ impl Decoder for Codec {
             }
         };
 
-        Ok(Some((packet, length)))
+        Ok(Some((packet, packet_length)))
     }
 }
 

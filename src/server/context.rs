@@ -1,4 +1,6 @@
+use crate::broker::Client;
 use crate::config::{Config, ConfigManager};
+use dashmap::DashMap;
 use std::cmp::PartialEq;
 use std::sync::Arc;
 use tokio::sync::watch;
@@ -15,12 +17,13 @@ pub enum Event {
 pub struct Context {
     tx: watch::Sender<Event>,
     pub config: Arc<ConfigManager>,
+    pub clients: Arc<DashMap<String, Client>>,
 }
 
 impl Context {
     pub fn init(config: ConfigManager) -> Self {
         let (tx, _) = watch::channel(Event::Running);
-        Self { tx, config: Arc::new(config) }
+        Self { tx, config: Arc::new(config), clients: Arc::new(DashMap::new()) }
     }
 
     pub fn config(&self) -> Arc<Config> {
