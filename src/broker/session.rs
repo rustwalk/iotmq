@@ -1,5 +1,5 @@
-use crate::Context;
-use crate::mqtt::*;
+use super::*;
+use crate::{Context, mqtt::*};
 use anyhow::Result;
 use futures::{SinkExt, StreamExt};
 use std::net::SocketAddr;
@@ -18,19 +18,25 @@ pub struct Session {
     framed: Framed<IO, Codec>,
     rx: mpsc::Receiver<Packet>,
     keepalive: u16,
+    expiry_interval: u32,
 }
 
 impl Session {
     /// MQTT connect
-    pub async fn connect(ctx: Context, io: IO, addr: SocketAddr) -> Result<Session> {
-        let mut framed = Framed::new(io, Codec::default());
+    pub async fn connect(ctx: Context, io: IO, addr: SocketAddr) -> Result<Self> {
+        // Config
+        let config = ctx.config();
+        let mqtt = &config.mqtt;
 
-        // Receive first packet
-        let (packet, packet_size) = timeout(Duration::from_secs(10), framed.next())
+        // Framed
+        let mut framed = Framed::new(io, Codec::new(mqtt.max_packet_size));
+
+        // Connection timeout
+        let (packet, _) = timeout(Duration::from_secs(10), framed.next())
             .await?
             .ok_or(Error::ConnectionClosed)??;
 
-        // CONNECT packet
+        // First packet
         let mut connect = match packet {
             Packet::Connect(connect) => connect,
             _ => {
@@ -38,46 +44,90 @@ impl Session {
             }
         };
 
-        // max packet size
-        let max_packet_size = ctx.config().mqtt.max_packet_size();
-        if packet_size > max_packet_size {
-            let error = Error::PacketTooLarge;
-            if connect.protocol_version == Version::V5 {
-                send_error(&mut framed, &error).await?;
-            }
-            return Err(error.into());
-        }
-
-        // client id
-        let assigned = match resolve_client_id(&mut connect) {
+        // Resolve client id
+        let assigned = match Self::resolve_client_id(&mut connect, mqtt.max_client_id_len) {
             Ok(assigned) => assigned,
-            Err(e) => {
-                send_error(&mut framed, &e).await?;
-                return Err(e.into());
+            Err(error) => {
+                Self::ack_error(&mut framed, &error).await?;
+                return Err(error.into());
             }
         };
 
-        // ConnAck
-        let properties = assigned.then(|| {
-            let mut properties = ConnAckProperties::default();
-            properties.assigned_client_identifier = Some(connect.client_id.clone());
-            properties
-        });
-        send_ok(&mut framed, properties).await?;
+        // Session expiry interval
+        let connect_expiry_interval =
+            connect.properties.as_ref().and_then(|p| p.session_expiry_interval).unwrap_or(0);
+        let expiry_interval = if mqtt.session_expiry_interval > 0 {
+            connect_expiry_interval.min(mqtt.session_expiry_interval)
+        } else {
+            connect_expiry_interval
+        };
 
-        // new Session
-        let (tx, rx) = mpsc::channel(128);
-        Ok(Self { ctx, framed, rx, keepalive: connect.keepalive })
+        // Send ConnAck
+        let properties = if connect.protocol_version == Version::V5 {
+            Some(ConnAckProperties {
+                assigned_client_identifier: assigned.then(|| connect.client_id.clone()),
+                max_packet_size: (mqtt.max_packet_size > 0).then_some(mqtt.max_packet_size),
+                topic_alias_max: (mqtt.max_topic_alias > 0).then_some(mqtt.max_topic_alias),
+                receive_maximum: (mqtt.max_receive > 0).then_some(mqtt.max_receive),
+                maximum_qos: (mqtt.max_qos < 2).then_some(mqtt.max_qos),
+                retain_available: (!mqtt.retain_available).then_some(0),
+                session_expiry_interval: (expiry_interval != connect_expiry_interval)
+                    .then_some(expiry_interval),
+                ..Default::default()
+            })
+        } else {
+            None
+        };
+        Self::ack_ok(&mut framed, false, properties).await?;
+
+        // new Client
+        let (tx, rx) = mpsc::channel::<Packet>(128);
+        let client = Client::new(connect.client_id.clone(), addr, connect.protocol_version, tx);
+        ctx.clients.insert(connect.client_id, client);
+
+        Ok(Self { ctx, framed, rx, keepalive: connect.keepalive, expiry_interval })
     }
 
-    /// Send packet
-    pub async fn send(&mut self, packet: Packet) -> Result<(), Error> {
-        self.framed.send(packet).await
+    /// Send ConnAck Ok
+    async fn ack_ok(
+        framed: &mut Framed<IO, Codec>,
+        session_present: bool,
+        properties: Option<ConnAckProperties>,
+    ) -> Result<(), Error> {
+        let connack = ConnAck { session_present, reason_code: ReasonCode::Success, properties };
+        framed.send(Packet::ConnAck(connack)).await
     }
 
-    /// Receive packet
-    pub async fn recv(&mut self) -> Result<(Packet, u32), Error> {
-        self.framed.next().await.ok_or(Error::ConnectionClosed)?
+    /// Send ConnAck Error
+    async fn ack_error(framed: &mut Framed<IO, Codec>, e: &Error) -> Result<(), Error> {
+        let mut connack = ConnAck::default();
+        connack.reason_code = e.into();
+        framed.send(Packet::ConnAck(connack)).await
+    }
+
+    pub fn resolve_client_id(
+        connect: &mut Connect,
+        max_client_id_len: usize,
+    ) -> Result<bool, Error> {
+        let assigned = connect.client_id.is_empty();
+
+        if max_client_id_len > 0 && connect.client_id.len() > max_client_id_len {
+            return Err(Error::ClientIdentifierNotValid);
+        }
+
+        if assigned {
+            if !connect.clean_start {
+                return Err(Error::ClientIdentifierNotValid);
+            }
+
+            if connect.protocol_version == Version::V31 {
+                return Err(Error::ClientIdentifierNotValid);
+            }
+
+            connect.client_id = uuid::Uuid::new_v4().simple().to_string();
+        }
+
+        Ok(assigned)
     }
 
     /// Session run loop
@@ -92,12 +142,12 @@ impl Session {
         loop {
             tokio::select! {
                 // Receive rx
-                // packet = self.rx.recv() => {
-                //     match packet {
-                //         Some(packet) => self.stream.send(packet).await?,
-                //         None => return Ok(()),
-                //     }
-                // }
+                packet = self.rx.recv() => {
+                    match packet {
+                        Some(packet) => self.framed.send(packet).await?,
+                        None => return Ok(()),
+                    }
+                }
 
                 // Server shutdown
                 _ = Context::shutdown(&mut rx) => {
@@ -106,21 +156,18 @@ impl Session {
                 }
 
                 // Receive Packet
-                result = self.recv() => {
+                result = self.framed.next() => {
                     let (packet, packet_size) = match result {
-                        Ok(packet) => packet,
-                        Err(Error::ConnectionClosed) => {
+                        Some(Ok(packet)) => packet,
+                        None | Some(Err(Error::ConnectionClosed)) => {
                             self.connection_lost().await?;
                             return Ok(());
                         }
-                        Err(e) => {
+                        Some(Err(e)) => {
                             self.connection_error().await?;
                             return Err(e.into());
                         }
                     };
-
-                    // Validate packet size
-                    self.validate_packet_size(packet_size)?;
 
                     // Reset keepalive timer
                     if let Some(keepalive) = keepalive {
@@ -167,18 +214,10 @@ impl Session {
         Err(Error::ProtocolError("Keepalive timeout".into()))
     }
 
-    /// Validate packet size
-    fn validate_packet_size(&self, packet_size: u32) -> Result<(), Error> {
-        if packet_size > self.ctx.config().mqtt.max_packet_size() {
-            return Err(Error::PacketTooLarge);
-        }
-        Ok(())
-    }
-
     /// Handle Packet
     async fn handle_packet(&mut self, packet: Packet) -> Result<bool, Error> {
         match packet {
-            Packet::PingReq => self.send(Packet::PingResp).await?,
+            Packet::PingReq => self.framed.send(Packet::PingResp).await?,
             Packet::Connect(_) => {
                 return Err(Error::ProtocolError("CONNECT packet received more than once".into()));
             }
@@ -204,29 +243,4 @@ impl Session {
         println!("{:?}", publish);
         Ok(())
     }
-}
-
-fn resolve_client_id(connect: &mut Connect) -> Result<bool, Error> {
-    if connect.client_id.is_empty() {
-        connect.client_id = uuid::Uuid::new_v4().simple().to_string();
-        return Ok(true);
-    }
-    Ok(false)
-}
-
-/// Send ConnAck Error
-async fn send_error(framed: &mut Framed<IO, Codec>, e: &Error) -> Result<(), Error> {
-    let mut connack = ConnAck::default();
-    connack.reason_code = e.into();
-    framed.send(Packet::ConnAck(connack)).await
-}
-
-/// Send ConnAck Ok
-async fn send_ok(
-    framed: &mut Framed<IO, Codec>,
-    properties: Option<ConnAckProperties>,
-) -> Result<(), Error> {
-    let mut connack = ConnAck::default();
-    connack.properties = properties;
-    framed.send(Packet::ConnAck(connack)).await
 }

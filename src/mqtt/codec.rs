@@ -4,8 +4,22 @@ use anyhow::Result;
 use tokio_util::bytes::{Buf, BytesMut};
 use tokio_util::codec::{Decoder, Encoder};
 
-#[derive(Default)]
-pub struct Codec(Version);
+const MAX_PACKET_SIZE: u32 = 268_435_460;
+pub struct Codec {
+    version: Version,
+    max_packet_size: u32,
+}
+
+impl Codec {
+    pub fn new(max_packet_size: u32) -> Self {
+        let max_packet_size = if max_packet_size == 0 {
+            MAX_PACKET_SIZE
+        } else {
+            max_packet_size.min(MAX_PACKET_SIZE)
+        };
+        Self { version: Version::default(), max_packet_size }
+    }
+}
 
 /// Codec Decode
 impl Decoder for Codec {
@@ -26,7 +40,7 @@ impl Decoder for Codec {
             Some((length, bytes)) => {
                 let packet_length = 1 + bytes + length;
                 if src.len() < packet_length {
-                    src.reserve(packet_length);
+                    src.reserve(packet_length - src.len());
                     return Ok(None);
                 }
                 src.advance(bytes + 1);
@@ -36,17 +50,21 @@ impl Decoder for Codec {
             None => return Ok(None),
         };
 
+        // Validate packet size
+        if packet_length > self.max_packet_size {
+            return Err(Error::PacketTooLarge);
+        }
+
         // Decode packet
         let packet_type = PacketType::try_from(packet_type).map_err(|_| Error::MalformedPacket)?;
-        let version = self.0;
         let packet = match packet_type {
             PacketType::Connect => {
                 let connect = Connect::decode(bytes)?;
-                self.0 = connect.protocol_version;
+                self.version = connect.protocol_version;
                 Packet::Connect(connect)
             }
-            PacketType::Disconnect => Packet::Disconnect(Disconnect::decode(version, bytes)?),
-            PacketType::Publish => Packet::Publish(Publish::decode(version, bytes, flags)?),
+            PacketType::Disconnect => Packet::Disconnect(Disconnect::decode(self.version, bytes)?),
+            PacketType::Publish => Packet::Publish(Publish::decode(self.version, bytes, flags)?),
             PacketType::PingReq => Packet::PingReq,
             PacketType::PingResp => Packet::PingResp,
             _ => {
@@ -65,11 +83,10 @@ impl Encoder<Packet> for Codec {
     type Error = Error;
 
     fn encode(&mut self, item: Packet, dst: &mut BytesMut) -> Result<(), Self::Error> {
-        let version = self.0;
         match item {
-            Packet::ConnAck(connack) => connack.encode(version, dst)?,
+            Packet::ConnAck(connack) => connack.encode(self.version, dst)?,
             //Packet::Disconnect(disconnect) => disconnect.encode(dst)?,
-            Packet::Publish(publish) => publish.encode(version, dst)?,
+            Packet::Publish(publish) => publish.encode(self.version, dst)?,
             Packet::PingReq => PingReq::encode(dst),
             Packet::PingResp => PingResp::encode(dst),
             _ => return Err(Error::ProtocolError("Packet Encoder is not implemented".into())),
